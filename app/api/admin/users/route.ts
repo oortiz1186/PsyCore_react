@@ -63,29 +63,31 @@ export async function GET(req: NextRequest) {
     const [{ data: profiles, error }, authUsers] = await Promise.all([
       admin
         .from('profiles')
-        .select('id,full_name,email,role_id,active,created_at,created_by,roles(id,name)')
+        .select('id,full_name,email,role_id,active,created_at,created_by,psychologist_id,roles(id,name)')
         .order('created_at', { ascending: false }),
       listAllAuthUsers(),
     ]);
 
     if (error) throw error;
 
-    const creatorIds = [...new Set((profiles || []).map((p) => p.created_by).filter(Boolean))];
-    const { data: creators } = creatorIds.length
-      ? await admin.from('profiles').select('id,full_name,email').in('id', creatorIds)
+    const relatedIds = [...new Set((profiles || []).flatMap((p) => [p.created_by, p.psychologist_id]).filter(Boolean))];
+    const { data: relatedProfiles } = relatedIds.length
+      ? await admin.from('profiles').select('id,full_name,email').in('id', relatedIds)
       : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
 
-    const creatorMap = new Map((creators || []).map((creator) => [creator.id, creator]));
+    const relatedMap = new Map((relatedProfiles || []).map((item) => [item.id, item]));
     const authMap = new Map(authUsers.map((user) => [user.id, user]));
 
     const users = (profiles || []).map((profile) => {
       const authUser = authMap.get(profile.id);
-      const creator = profile.created_by ? creatorMap.get(profile.created_by) : null;
+      const creator = profile.created_by ? relatedMap.get(profile.created_by) : null;
+      const psychologist = profile.psychologist_id ? relatedMap.get(profile.psychologist_id) : null;
       return {
         ...profile,
         last_sign_in_at: authUser?.last_sign_in_at || null,
         auth_created_at: authUser?.created_at || null,
         creator_name: creator?.full_name || creator?.email || null,
+        psychologist_name: psychologist?.full_name || psychologist?.email || null,
       };
     });
 
@@ -107,6 +109,9 @@ export async function POST(req: NextRequest) {
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
     const roleId = Number(body.roleId);
+    const requestedPsychologistId = typeof body.psychologistId === 'string' && body.psychologistId
+      ? body.psychologistId
+      : null;
 
     if (!email || !fullName || !Number.isInteger(roleId) || roleId <= 0) {
       return NextResponse.json({ error: 'Nombre, correo y rol son obligatorios.' }, { status: 400 });
@@ -121,6 +126,31 @@ export async function POST(req: NextRequest) {
 
     if (roleError || !role || !ALLOWED_ROLES.includes(role.name)) {
       return NextResponse.json({ error: 'El rol seleccionado no está permitido.' }, { status: 400 });
+    }
+
+    if (role.name === 'Asistente') {
+      if (!requestedPsychologistId) {
+        return NextResponse.json(
+          { error: 'Debes seleccionar la psicóloga responsable de la asistente.' },
+          { status: 400 }
+        );
+      }
+
+      const { data: psychologist, error: psychologistError } = await admin
+        .from('profiles')
+        .select('id,roles(name)')
+        .eq('id', requestedPsychologistId)
+        .maybeSingle();
+      const psychologistRole = Array.isArray(psychologist?.roles)
+        ? psychologist.roles[0]?.name
+        : (psychologist?.roles as { name?: string } | null)?.name;
+
+      if (psychologistError || !psychologist || psychologistRole !== 'Psicóloga') {
+        return NextResponse.json(
+          { error: 'La psicóloga seleccionada no es válida.' },
+          { status: 400 }
+        );
+      }
     }
 
     const existingUsers = await listAllAuthUsers();
@@ -147,6 +177,12 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = data.user.id;
+    const psychologistId = role.name === 'Psicóloga'
+      ? userId
+      : role.name === 'Asistente'
+        ? requestedPsychologistId
+        : null;
+
     const { error: profileError } = await admin.from('profiles').upsert({
       id: userId,
       full_name: fullName,
@@ -155,6 +191,7 @@ export async function POST(req: NextRequest) {
       active: true,
       must_change_password: true,
       created_by: actor.id,
+      psychologist_id: psychologistId,
     });
 
     if (profileError) {
@@ -180,7 +217,7 @@ export async function POST(req: NextRequest) {
           from: `${smtp.fromName} <${smtp.fromEmail}>`,
           to: email,
           subject: 'Tu acceso a PsyCore',
-          html: `<h2>Bienvenida/o a PsyCore</h2><p>Tu cuenta ha sido creada.</p><p><strong>Correo:</strong> ${email}</p><p><strong>Contraseña temporal:</strong> ${password}</p><p><a href="${smtp.appUrl}/login">Ingresar a PsyCore</a></p><p>Al iniciar sesión deberás cambiar la contraseña.</p>`,
+          html: `<h2>Bienvenida/o a PsyCore</h2><p>Tu cuenta ha sido creada.</p><p><strong>Correo:</strong> ${email}</p><p><strong>Contraseña temporal:</strong> ${password}</p><p><strong>Rol:</strong> ${role.name}</p><p><a href="${smtp.appUrl}/login">Ingresar a PsyCore</a></p><p>Al iniciar sesión deberás cambiar la contraseña.</p>`,
         });
         passwordSent = true;
       } else {

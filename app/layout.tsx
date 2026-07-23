@@ -5,6 +5,7 @@ import './patients.css';
 import './soap-notes.css';
 import './patient-files.css';
 import './patient-evaluations.css';
+import './professional-calendar.css';
 
 export const metadata: Metadata = {
   title: 'PsyCore',

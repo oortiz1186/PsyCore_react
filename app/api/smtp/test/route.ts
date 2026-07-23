@@ -1,31 +1,82 @@
-import { NextRequest,NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { getSmtpSettings } from '@/lib/smtp-settings';
 
-async function adminOnly(req:NextRequest){
-  const token=req.headers.get('authorization')?.replace('Bearer ','');
-  if(!token)return false;
-  const a=getSupabaseAdmin();
-  const {data}=await a.auth.getUser(token);
-  if(!data.user)return false;
-  const {data:p}=await a.from('profiles').select('roles(name)').eq('id',data.user.id).maybeSingle();
-  const role=Array.isArray(p?.roles)?p.roles[0]?.name:(p?.roles as {name?:string}|null)?.name;
-  return role==='Administrador';
+async function adminOnly(req: NextRequest) {
+  const token = req.headers.get('authorization')?.replace('Bearer ', '');
+  if (!token) return false;
+
+  const admin = getSupabaseAdmin();
+  const { data } = await admin.auth.getUser(token);
+  if (!data.user) return false;
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('roles(name)')
+    .eq('id', data.user.id)
+    .maybeSingle();
+
+  const role = Array.isArray(profile?.roles)
+    ? profile.roles[0]?.name
+    : (profile?.roles as { name?: string } | null)?.name;
+
+  return role === 'Administrador';
 }
 
-export async function POST(req:NextRequest){
-  if(!await adminOnly(req))return NextResponse.json({error:'No autorizado.'},{status:403});
-  const {to}=await req.json();
+export async function POST(req: NextRequest) {
+  if (!(await adminOnly(req))) {
+    return NextResponse.json({ error: 'No autorizado.' }, { status: 403 });
+  }
 
-  try{
-    const smtp=await getSmtpSettings();
-    if(!smtp)return NextResponse.json({error:'Primero guarda la configuración SMTP.'},{status:400});
+  try {
+    const { to } = await req.json();
 
-    const transport=nodemailer.createTransport({host:smtp.host,port:smtp.port,secure:smtp.secure,auth:{user:smtp.username,pass:smtp.password}});
-    await transport.sendMail({from:`${smtp.fromName} <${smtp.fromEmail}>`,to,subject:'Prueba SMTP de PsyCore',html:'<h2>Configuración correcta</h2><p>PsyCore puede enviar correos.</p>'});
-    return NextResponse.json({ok:true});
-  }catch(e){
-    return NextResponse.json({error:e instanceof Error?e.message:'No se pudo enviar.'},{status:500});
+    if (!to || typeof to !== 'string') {
+      return NextResponse.json({ error: 'Captura un correo para la prueba.' }, { status: 400 });
+    }
+
+    const smtp = await getSmtpSettings();
+
+    if (!smtp) {
+      return NextResponse.json(
+        { error: 'Primero guarda la configuración SMTP.' },
+        { status: 400 }
+      );
+    }
+
+    const transport = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: {
+        user: smtp.username,
+        pass: smtp.password,
+      },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 20000,
+    });
+
+    await transport.verify();
+    await transport.sendMail({
+      from: `${smtp.fromName} <${smtp.fromEmail}>`,
+      to: to.trim().toLowerCase(),
+      subject: 'Prueba SMTP de PsyCore',
+      html: '<h2>Configuración correcta</h2><p>PsyCore puede enviar correos correctamente.</p>',
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('SMTP test error:', error);
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'No se pudo conectar con el servidor SMTP.',
+      },
+      { status: 500 }
+    );
   }
 }

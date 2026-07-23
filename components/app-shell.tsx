@@ -26,6 +26,7 @@ const links = [
   ['/appointments', 'Agenda', '◷'],
   ['/clinical-records', 'Expedientes', '▤'],
   ['/admin/users', 'Usuarios', '♙'],
+  ['/settings/practice', 'Consultorios y horarios', '⌁'],
   ['/settings/smtp', 'Configuración SMTP', '⚙'],
 ];
 
@@ -50,7 +51,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setUserMenuOpen(false);
       }
     };
-
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
@@ -69,23 +69,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
     async function restoreSession() {
       const { data } = await supabase.auth.getSession();
-
       if (!active) return;
-
       if (!data.session) {
         clearSessionActivity();
         router.replace('/login');
         return;
       }
-
       if (sessionIsExpired()) {
         await closeExpiredSession();
         return;
       }
-
-      if (getLastSessionActivity() === null) {
-        markSessionActivity();
-      }
+      if (getLastSessionActivity() === null) markSessionActivity();
 
       const { data: currentProfile } = await supabase
         .from('profiles')
@@ -94,23 +88,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         .maybeSingle();
 
       if (!active) return;
-
       if (currentProfile?.active === false) {
         await supabase.auth.signOut();
         clearSessionActivity();
         router.replace('/login');
         return;
       }
-
       if (currentProfile?.must_change_password && path !== '/change-password') {
         router.replace('/change-password');
         return;
       }
-
-      setProfile({
-        ...currentProfile,
-        email: currentProfile?.email || data.session.user.email,
-      });
+      setProfile({ ...currentProfile, email: currentProfile?.email || data.session.user.email });
       setReady(true);
     }
 
@@ -124,23 +112,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const activityEvents: Array<keyof WindowEventMap> = [
-      'mousedown',
-      'keydown',
-      'touchstart',
-      'scroll',
-    ];
-
+    const activityEvents: Array<keyof WindowEventMap> = ['mousedown','keydown','touchstart','scroll'];
     const registerActivity = () => {
       const now = Date.now();
       if (now - activityThrottleRef.current < 60_000) return;
       activityThrottleRef.current = now;
       markSessionActivity(now);
     };
-
-    activityEvents.forEach((eventName) => {
-      window.addEventListener(eventName, registerActivity, { passive: true });
-    });
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, registerActivity, { passive: true }));
 
     const visibilityHandler = () => {
       if (document.visibilityState === 'visible') {
@@ -148,15 +127,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         else registerActivity();
       }
     };
-
     const storageHandler = (event: StorageEvent) => {
       if (event.key !== SESSION_ACTIVITY_KEY) return;
       if (sessionIsExpired()) void closeExpiredSession();
     };
-
     document.addEventListener('visibilitychange', visibilityHandler);
     window.addEventListener('storage', storageHandler);
-
     const expirationTimer = window.setInterval(() => {
       if (sessionIsExpired()) void closeExpiredSession();
     }, 60_000);
@@ -164,9 +140,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       active = false;
       authListener.subscription.unsubscribe();
-      activityEvents.forEach((eventName) => {
-        window.removeEventListener(eventName, registerActivity);
-      });
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, registerActivity));
       document.removeEventListener('visibilitychange', visibilityHandler);
       window.removeEventListener('storage', storageHandler);
       window.clearInterval(expirationTimer);
@@ -187,16 +161,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (!ready) return <main className="auth">Cargando PsyCore...</main>;
 
-  const role = Array.isArray(profile?.roles)
-    ? profile?.roles[0]?.name
-    : profile?.roles?.name;
-
-  const initials = (profile?.full_name || profile?.email || 'U')
-    .split(' ')
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
+  const role = Array.isArray(profile?.roles) ? profile?.roles[0]?.name : profile?.roles?.name;
+  const initials = (profile?.full_name || profile?.email || 'U').split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const visibleLinks = links.filter(([href]) => {
+    if (href === '/admin/users' || href === '/settings/smtp') return role === 'Administrador';
+    if (href === '/settings/practice') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga';
+    return true;
+  });
 
   return (
     <div className={`shell ${collapsed ? 'shell-collapsed' : ''}`}>
@@ -204,75 +175,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="sidebar-top">
           <div className="brand">
             <div className="brand-mark">Ψ</div>
-            {!collapsed ? (
-              <div>
-                <strong>PsyCore</strong>
-                <div className="muted brand-caption">Gestión psicológica</div>
-              </div>
-            ) : null}
+            {!collapsed ? <div><strong>PsyCore</strong><div className="muted brand-caption">Gestión psicológica</div></div> : null}
           </div>
-
           <div className="sidebar-user" ref={menuRef}>
-            <button
-              type="button"
-              className="sidebar-user-button"
-              onClick={() => setUserMenuOpen((current) => !current)}
-              aria-expanded={userMenuOpen}
-            >
+            <button type="button" className="sidebar-user-button" onClick={() => setUserMenuOpen((current) => !current)} aria-expanded={userMenuOpen}>
               <span className="user-avatar">{initials}</span>
-              {!collapsed ? (
-                <span className="user-copy">
-                  <strong>{profile?.full_name || 'Usuario'}</strong>
-                  <small>{role || 'PsyCore'}</small>
-                </span>
-              ) : null}
-              {!collapsed ? (
-                <span className={`user-caret ${userMenuOpen ? 'open' : ''}`}>▾</span>
-              ) : null}
+              {!collapsed ? <span className="user-copy"><strong>{profile?.full_name || 'Usuario'}</strong><small>{role || 'PsyCore'}</small></span> : null}
+              {!collapsed ? <span className={`user-caret ${userMenuOpen ? 'open' : ''}`}>▾</span> : null}
             </button>
-
-            {userMenuOpen ? (
-              <div className={`user-popover ${collapsed ? 'user-popover-collapsed' : ''}`}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserMenuOpen(false);
-                    router.push('/change-password');
-                  }}
-                >
-                  Cambiar contraseña
-                </button>
-                <button type="button" className="danger-link" onClick={logout}>
-                  Cerrar sesión
-                </button>
-              </div>
-            ) : null}
+            {userMenuOpen ? <div className={`user-popover ${collapsed ? 'user-popover-collapsed' : ''}`}>
+              <button type="button" onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}>Cambiar contraseña</button>
+              <button type="button" className="danger-link" onClick={logout}>Cerrar sesión</button>
+            </div> : null}
           </div>
         </div>
-
         <nav className="nav">
-          {links.map(([href, label, icon]) => (
-            <Link
-              key={href}
-              href={href}
-              className={path === href ? 'nav-link active' : 'nav-link'}
-              title={collapsed ? label : undefined}
-            >
-              <span className="nav-icon">{icon}</span>
-              {!collapsed ? <span>{label}</span> : null}
-            </Link>
-          ))}
+          {visibleLinks.map(([href, label, icon]) => <Link key={href} href={href} className={path === href ? 'nav-link active' : 'nav-link'} title={collapsed ? label : undefined}><span className="nav-icon">{icon}</span>{!collapsed ? <span>{label}</span> : null}</Link>)}
         </nav>
-
-        <button
-          type="button"
-          className="sidebar-toggle"
-          onClick={toggleSidebar}
-          title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-          aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
+        <button type="button" className="sidebar-toggle" onClick={toggleSidebar} title={collapsed ? 'Mostrar menú' : 'Ocultar menú'} aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}>{collapsed ? '›' : '‹'}</button>
       </aside>
       <main className="main">{children}</main>
     </div>

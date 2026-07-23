@@ -1,202 +1,89 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Modal } from '@/components/ui/modal';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
-type Patient = {
-  id: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  psychologist_id?: string | null;
-};
-
+type CalendarView = 'day' | 'week' | 'month';
+type Patient = { id:string; first_name?:string|null; last_name?:string|null; psychologist_id?:string|null };
+type Psychologist = { id:string; full_name?:string|null; email?:string|null; calendar_color?:string|null };
+type Room = { id:string; name?:string|null; active?:boolean|null };
 type Appointment = {
-  id: string;
-  patient_id: string;
-  starts_at?: string | null;
-  appointment_date?: string | null;
-  status?: string | null;
-  notes?: string | null;
-  patients?: Patient | Patient[] | null;
+  id:string; patient_id:string; psychologist_id?:string|null; room_id?:string|null; starts_at?:string|null;
+  status?:string|null; notes?:string|null; consultation_mode?:string|null; duration_minutes?:number|null;
+  patients?:Patient|Patient[]|null; profiles?:Psychologist|Psychologist[]|null; consulting_rooms?:Room|Room[]|null;
 };
 
-function patientName(patient?: Patient | Patient[] | null) {
-  const current = Array.isArray(patient) ? patient[0] : patient;
-  if (!current) return 'Paciente sin nombre';
-  return `${current.first_name || ''} ${current.last_name || ''}`.trim() || 'Paciente sin nombre';
+type FormState={patient_id:string;starts_at:string;duration_minutes:string;status:string;consultation_mode:string;room_id:string;notes:string};
+const emptyForm:FormState={patient_id:'',starts_at:'',duration_minutes:'50',status:'Programada',consultation_mode:'Presencial',room_id:'',notes:''};
+const HOURS=Array.from({length:14},(_,i)=>i+7);
+const COLORS=['#7567c7','#4f8f70','#c0793f','#3f7cac','#b65d7c','#8b6f47'];
+
+function one<T>(value:T|T[]|null|undefined){return Array.isArray(value)?value[0]:value;}
+function patientName(patient?:Patient|Patient[]|null){const p=one(patient);return p?`${p.first_name||''} ${p.last_name||''}`.trim()||'Paciente sin nombre':'Paciente sin nombre';}
+function psychologistName(profile?:Psychologist|Psychologist[]|null){const p=one(profile);return p?.full_name||p?.email||'Psicóloga';}
+function roomName(room?:Room|Room[]|null){return one(room)?.name||'';}
+function startOfDay(date:Date){return new Date(date.getFullYear(),date.getMonth(),date.getDate());}
+function addDays(date:Date,amount:number){const value=new Date(date);value.setDate(value.getDate()+amount);return value;}
+function startOfWeek(date:Date){const value=startOfDay(date);const day=(value.getDay()+6)%7;return addDays(value,-day);}
+function sameDay(a:Date,b:Date){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
+function toLocalInput(date:Date){const offset=date.getTimezoneOffset();return new Date(date.getTime()-offset*60000).toISOString().slice(0,16);}
+function displayRange(view:CalendarView,date:Date){const fmt=new Intl.DateTimeFormat('es-MX',{month:'long',year:'numeric'});if(view==='day')return new Intl.DateTimeFormat('es-MX',{dateStyle:'full'}).format(date);if(view==='week'){const start=startOfWeek(date);const end=addDays(start,6);return `${new Intl.DateTimeFormat('es-MX',{day:'numeric',month:'short'}).format(start)} – ${new Intl.DateTimeFormat('es-MX',{day:'numeric',month:'short',year:'numeric'}).format(end)}`;}return fmt.format(date);}
+
+export default function AppointmentsPage(){
+ const [rows,setRows]=useState<Appointment[]>([]);const [patients,setPatients]=useState<Patient[]>([]);const [psychologists,setPsychologists]=useState<Psychologist[]>([]);const [rooms,setRooms]=useState<Room[]>([]);
+ const [view,setView]=useState<CalendarView>('week');const [cursor,setCursor]=useState(startOfDay(new Date()));const [selectedPsychologist,setSelectedPsychologist]=useState('Todos');
+ const [modalOpen,setModalOpen]=useState(false);const [editing,setEditing]=useState<Appointment|null>(null);const [form,setForm]=useState<FormState>(emptyForm);const [msg,setMsg]=useState('');const [saving,setSaving]=useState(false);
+
+ async function load(){
+  setMsg('');const s=getSupabaseBrowser();
+  const [a,p,ps,r]=await Promise.all([
+   s.from('appointments').select('id,patient_id,psychologist_id,room_id,starts_at,status,notes,consultation_mode,duration_minutes,patients(id,first_name,last_name,psychologist_id),profiles:psychologist_id(id,full_name,email,calendar_color),consulting_rooms:room_id(id,name)').order('starts_at',{ascending:true}),
+   s.from('patients').select('id,first_name,last_name,psychologist_id').order('first_name'),
+   s.from('profiles').select('id,full_name,email,calendar_color').eq('active',true).order('full_name'),
+   s.from('consulting_rooms').select('id,name,active').eq('active',true).order('name')
+  ]);
+  if(a.error)setMsg(a.error.message);else setRows((a.data||[]) as Appointment[]);
+  if(!p.error)setPatients((p.data||[]) as Patient[]);if(!ps.error)setPsychologists((ps.data||[]) as Psychologist[]);if(!r.error)setRooms((r.data||[]) as Room[]);
+ }
+ useEffect(()=>{void load();},[]);
+
+ const filtered=useMemo(()=>rows.filter(item=>selectedPsychologist==='Todos'||item.psychologist_id===selectedPsychologist),[rows,selectedPsychologist]);
+ function colorFor(item:Appointment){const id=item.psychologist_id||'';const profile=one(item.profiles);return profile?.calendar_color||COLORS[Math.abs(id.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%COLORS.length];}
+ function eventsFor(date:Date,hour?:number){return filtered.filter(item=>{if(!item.starts_at)return false;const start=new Date(item.starts_at);return sameDay(start,date)&&(hour===undefined||start.getHours()===hour);});}
+ function openNew(date?:Date){const value=date||new Date();setEditing(null);setForm({...emptyForm,starts_at:toLocalInput(value)});setModalOpen(true);}
+ function openEdit(item:Appointment){setEditing(item);setForm({patient_id:String(item.patient_id),starts_at:item.starts_at?toLocalInput(new Date(item.starts_at)):'',duration_minutes:String(item.duration_minutes||50),status:item.status||'Programada',consultation_mode:item.consultation_mode||'Presencial',room_id:item.room_id?String(item.room_id):'',notes:item.notes||''});setModalOpen(true);}
+ async function save(event:FormEvent){event.preventDefault();setSaving(true);setMsg('');try{const patient=patients.find(p=>String(p.id)===form.patient_id);if(!patient?.psychologist_id)throw new Error('El paciente no tiene psicóloga responsable.');const s=getSupabaseBrowser();const {data:{user}}=await s.auth.getUser();const payload={patient_id:Number(form.patient_id),psychologist_id:patient.psychologist_id,room_id:form.room_id?Number(form.room_id):null,starts_at:new Date(form.starts_at).toISOString(),duration_minutes:Number(form.duration_minutes)||50,status:form.status,consultation_mode:form.consultation_mode,notes:form.notes.trim()||null,updated_at:new Date().toISOString()};const result=editing?await s.from('appointments').update(payload).eq('id',editing.id):await s.from('appointments').insert({...payload,created_by:user?.id});if(result.error)throw result.error;setModalOpen(false);setEditing(null);await load();}catch(error){setMsg(error instanceof Error?error.message:'No se pudo guardar la cita.');}finally{setSaving(false);}}
+ async function remove(){if(!editing||!confirm('¿Eliminar esta cita?'))return;const s=getSupabaseBrowser();const result=await s.from('appointments').delete().eq('id',editing.id);if(result.error)setMsg(result.error.message);else{setModalOpen(false);setEditing(null);await load();}}
+ function navigate(direction:number){if(view==='day')setCursor(addDays(cursor,direction));else if(view==='week')setCursor(addDays(cursor,direction*7));else setCursor(new Date(cursor.getFullYear(),cursor.getMonth()+direction,1));}
+
+ return <div className="calendar-shell">
+  <div className="page-head"><div><span className="eyebrow">Agenda profesional</span><h1>Calendario</h1><p className="muted">Organiza sesiones por día, semana o mes.</p></div><button className="btn btn-primary" onClick={()=>openNew(new Date())}><Plus size={17}/> Nueva cita</button></div>
+  <section className="card calendar-toolbar">
+   <div className="calendar-nav"><button className="btn btn-secondary btn-small" onClick={()=>navigate(-1)}><ChevronLeft size={17}/></button><button className="btn btn-secondary btn-small" onClick={()=>setCursor(startOfDay(new Date()))}>Hoy</button><button className="btn btn-secondary btn-small" onClick={()=>navigate(1)}><ChevronRight size={17}/></button><div className="calendar-title">{displayRange(view,cursor)}</div></div>
+   <div className="calendar-filters"><select value={selectedPsychologist} onChange={e=>setSelectedPsychologist(e.target.value)}><option>Todos</option>{psychologists.map(p=><option key={p.id} value={p.id}>{p.full_name||p.email||'Psicóloga'}</option>)}</select><div className="calendar-view-switch"><button className={`btn btn-small ${view==='day'?'active':'btn-secondary'}`} onClick={()=>setView('day')}>Día</button><button className={`btn btn-small ${view==='week'?'active':'btn-secondary'}`} onClick={()=>setView('week')}>Semana</button><button className={`btn btn-small ${view==='month'?'active':'btn-secondary'}`} onClick={()=>setView('month')}>Mes</button></div></div>
+  </section>
+  {msg?<div className="error">{msg}</div>:null}
+  <div className="calendar-legend">{psychologists.map((p,i)=><span className="legend-item" key={p.id}><i className="legend-dot" style={{'--legend-color':p.calendar_color||COLORS[i%COLORS.length]} as React.CSSProperties}/>{p.full_name||p.email}</span>)}</div>
+  {view==='week'?<WeekView cursor={cursor} eventsFor={eventsFor} colorFor={colorFor} openNew={openNew} openEdit={openEdit}/>:null}
+  {view==='day'?<DayView cursor={cursor} eventsFor={eventsFor} colorFor={colorFor} openNew={openNew} openEdit={openEdit}/>:null}
+  {view==='month'?<MonthView cursor={cursor} eventsFor={eventsFor} colorFor={colorFor} openNew={openNew} openEdit={openEdit}/>:null}
+  <Modal open={modalOpen} title={editing?'Editar cita':'Nueva cita'} description="Programa los datos principales de la sesión." onClose={()=>setModalOpen(false)} closeDisabled={saving}>
+   <form className="form" onSubmit={save}><div className="appointment-modal-grid">
+    <label className="field full">Paciente<select value={form.patient_id} onChange={e=>setForm({...form,patient_id:e.target.value})} required><option value="">Selecciona</option>{patients.map(p=><option key={p.id} value={String(p.id)}>{patientName(p)}</option>)}</select></label>
+    <label className="field">Fecha y hora<input type="datetime-local" value={form.starts_at} onChange={e=>setForm({...form,starts_at:e.target.value})} required/></label>
+    <label className="field">Duración<select value={form.duration_minutes} onChange={e=>setForm({...form,duration_minutes:e.target.value})}><option value="30">30 minutos</option><option value="45">45 minutos</option><option value="50">50 minutos</option><option value="60">60 minutos</option><option value="90">90 minutos</option></select></label>
+    <label className="field">Modalidad<select value={form.consultation_mode} onChange={e=>setForm({...form,consultation_mode:e.target.value})}><option>Presencial</option><option>Videollamada</option><option>Domicilio</option><option>Hospital</option><option>Telefónica</option></select></label>
+    <label className="field">Consultorio<select value={form.room_id} onChange={e=>setForm({...form,room_id:e.target.value})}><option value="">Sin consultorio</option>{rooms.map(r=><option key={r.id} value={String(r.id)}>{r.name}</option>)}</select></label>
+    <label className="field">Estado<select value={form.status} onChange={e=>setForm({...form,status:e.target.value})}><option>Programada</option><option>Confirmada</option><option>Completada</option><option>Cancelada</option><option>No asistió</option></select></label>
+    <label className="field full">Notas<textarea rows={3} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
+   </div><footer className="modal-actions">{editing?<button type="button" className="btn btn-danger" onClick={remove}>Eliminar</button>:null}<button type="button" className="btn btn-secondary" onClick={()=>setModalOpen(false)}>Cancelar</button><button className="btn btn-primary" disabled={saving}>{saving?'Guardando...':'Guardar cita'}</button></footer></form>
+  </Modal>
+ </div>;
 }
 
-export default function Appointments() {
-  const [rows, setRows] = useState<Appointment[]>([]);
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [show, setShow] = useState(false);
-  const [form, setForm] = useState({
-    patient_id: '',
-    starts_at: '',
-    status: 'Programada',
-    notes: '',
-  });
-  const [msg, setMsg] = useState('');
-
-  async function load() {
-    const supabase = getSupabaseBrowser();
-    setMsg('');
-
-    const [appointmentsResult, patientsResult] = await Promise.all([
-      supabase
-        .from('appointments')
-        .select(
-          'id,patient_id,starts_at,appointment_date,status,notes,patients(id,first_name,last_name,psychologist_id)'
-        )
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('patients')
-        .select('id,first_name,last_name,psychologist_id')
-        .order('created_at', { ascending: false }),
-    ]);
-
-    if (appointmentsResult.error) {
-      setMsg(appointmentsResult.error.message);
-    } else {
-      setRows((appointmentsResult.data || []) as Appointment[]);
-    }
-
-    if (patientsResult.error) {
-      setMsg(patientsResult.error.message);
-    } else {
-      setPatients((patientsResult.data || []) as Patient[]);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-  }, []);
-
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    setMsg('');
-
-    const supabase = getSupabaseBrowser();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const patient = patients.find((item) => item.id === form.patient_id);
-    if (!patient?.psychologist_id) {
-      setMsg('El paciente no tiene una psicóloga responsable asignada.');
-      return;
-    }
-
-    const { error } = await supabase.from('appointments').insert({
-      patient_id: form.patient_id,
-      psychologist_id: patient.psychologist_id,
-      starts_at: form.starts_at,
-      status: form.status,
-      notes: form.notes.trim() || null,
-      created_by: user?.id,
-    });
-
-    if (error) {
-      setMsg(error.message);
-      return;
-    }
-
-    setShow(false);
-    setForm({ patient_id: '', starts_at: '', status: 'Programada', notes: '' });
-    await load();
-  }
-
-  return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>Agenda</h1>
-          <p className="muted">Citas visibles según la psicóloga responsable.</p>
-        </div>
-        <button className="btn btn-primary" type="button" onClick={() => setShow(!show)}>
-          {show ? 'Cancelar' : 'Nueva cita'}
-        </button>
-      </div>
-
-      {show ? (
-        <form className="card form" onSubmit={save}>
-          <label className="field">
-            Paciente
-            <select
-              value={form.patient_id}
-              onChange={(event) => setForm({ ...form, patient_id: event.target.value })}
-              required
-            >
-              <option value="">Selecciona</option>
-              {patients.map((patient) => (
-                <option key={patient.id} value={patient.id}>
-                  {patientName(patient)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            Fecha y hora
-            <input
-              type="datetime-local"
-              value={form.starts_at}
-              onChange={(event) => setForm({ ...form, starts_at: event.target.value })}
-              required
-            />
-          </label>
-
-          <label className="field">
-            Estado
-            <select
-              value={form.status}
-              onChange={(event) => setForm({ ...form, status: event.target.value })}
-            >
-              <option>Programada</option>
-              <option>Confirmada</option>
-              <option>Completada</option>
-              <option>Cancelada</option>
-            </select>
-          </label>
-
-          <label className="field">
-            Notas
-            <textarea
-              value={form.notes}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-            />
-          </label>
-
-          <button className="btn btn-primary">Guardar cita</button>
-        </form>
-      ) : null}
-
-      {msg ? <div className="error">{msg}</div> : null}
-
-      <div className="card table-wrap">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Paciente</th>
-              <th>Fecha</th>
-              <th>Estado</th>
-              <th>Notas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((appointment) => (
-              <tr key={appointment.id}>
-                <td>{patientName(appointment.patients)}</td>
-                <td>{appointment.starts_at || appointment.appointment_date || '—'}</td>
-                <td>
-                  <span className="chip">{appointment.status || 'Programada'}</span>
-                </td>
-                <td>{appointment.notes || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
+function EventButton({item,color,onClick}:{item:Appointment;color:string;onClick:()=>void}){return <button className="calendar-event" style={{'--event-color':color} as React.CSSProperties} onClick={e=>{e.stopPropagation();onClick();}}><strong>{patientName(item.patients)}</strong><small>{item.starts_at?new Intl.DateTimeFormat('es-MX',{hour:'2-digit',minute:'2-digit'}).format(new Date(item.starts_at)):''} · {item.consultation_mode||'Consulta'}</small>{roomName(item.consulting_rooms)?<small>{roomName(item.consulting_rooms)}</small>:null}</button>}
+function WeekView({cursor,eventsFor,colorFor,openNew,openEdit}:{cursor:Date;eventsFor:(d:Date,h?:number)=>Appointment[];colorFor:(a:Appointment)=>string;openNew:(d:Date)=>void;openEdit:(a:Appointment)=>void}){const days=Array.from({length:7},(_,i)=>addDays(startOfWeek(cursor),i));return <section className="card calendar-board"><div className="calendar-week-head"><div/><>{days.map(d=><div key={d.toISOString()} className={`calendar-day-head ${sameDay(d,new Date())?'today':''}`}><strong>{new Intl.DateTimeFormat('es-MX',{weekday:'short'}).format(d)}</strong><div>{d.getDate()}</div></div>)}</></div>{HOURS.map(hour=><div className="calendar-week-row" key={hour}><div className="calendar-hour-label">{String(hour).padStart(2,'0')}:00</div>{days.map(day=><div className="calendar-slot" key={`${day.toISOString()}-${hour}`} onClick={()=>openNew(new Date(day.getFullYear(),day.getMonth(),day.getDate(),hour))}>{eventsFor(day,hour).map(item=><EventButton key={item.id} item={item} color={colorFor(item)} onClick={()=>openEdit(item)}/>)}</div>)}</div>)}</section>}
+function DayView({cursor,eventsFor,colorFor,openNew,openEdit}:{cursor:Date;eventsFor:(d:Date,h?:number)=>Appointment[];colorFor:(a:Appointment)=>string;openNew:(d:Date)=>void;openEdit:(a:Appointment)=>void}){return <section className="card calendar-board">{HOURS.map(hour=><div className="calendar-day-view" key={hour}><div className="calendar-hour-label">{String(hour).padStart(2,'0')}:00</div><div className="calendar-slot" onClick={()=>openNew(new Date(cursor.getFullYear(),cursor.getMonth(),cursor.getDate(),hour))}>{eventsFor(cursor,hour).map(item=><EventButton key={item.id} item={item} color={colorFor(item)} onClick={()=>openEdit(item)}/>)}</div></div>)}</section>}
+function MonthView({cursor,eventsFor,colorFor,openNew,openEdit}:{cursor:Date;eventsFor:(d:Date,h?:number)=>Appointment[];colorFor:(a:Appointment)=>string;openNew:(d:Date)=>void;openEdit:(a:Appointment)=>void}){const first=new Date(cursor.getFullYear(),cursor.getMonth(),1);const gridStart=startOfWeek(first);const days=Array.from({length:42},(_,i)=>addDays(gridStart,i));return <section className="card calendar-board"><div className="month-grid">{['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d=><div className="month-weekday" key={d}>{d}</div>)}{days.map(day=>{const events=eventsFor(day);return <div key={day.toISOString()} className={`month-cell ${day.getMonth()!==cursor.getMonth()?'outside':''} ${sameDay(day,new Date())?'today':''}`} onClick={()=>openNew(new Date(day.getFullYear(),day.getMonth(),day.getDate(),9))}><span className="month-number">{day.getDate()}</span><div className="month-events">{events.slice(0,3).map(item=><button key={item.id} className="month-event" style={{'--event-color':colorFor(item)} as React.CSSProperties} onClick={e=>{e.stopPropagation();openEdit(item)}}>{item.starts_at?new Intl.DateTimeFormat('es-MX',{hour:'2-digit',minute:'2-digit'}).format(new Date(item.starts_at)):''} {patientName(item.patients)}</button>)}{events.length>3?<small>+{events.length-3} más</small>:null}</div></div>})}</div></section>}

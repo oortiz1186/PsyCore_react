@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ClipboardList, FolderOpen, HeartPulse, History, Mail, Phone, UserRound } from 'lucide-react';
+import { PatientEvaluationsPanel } from '@/components/patients/patient-evaluations-panel';
 import { PatientFilesPanel } from '@/components/patients/patient-files-panel';
 import { SoapNotesPanel } from '@/components/patients/soap-notes-panel';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
@@ -159,7 +160,7 @@ export default function PatientRecordPage() {
     {tab === 'appointments' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Agenda</span><h2>Citas del paciente</h2></div><Link className="btn btn-primary" href={`/appointments?patient=${patient.id}`}>Nueva cita</Link></div>{appointments.length ? <div className="appointment-list">{appointments.map(item => <div className="appointment-item" key={item.id}><span className="appointment-dot"/><div><strong>{item.starts_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.starts_at)) : 'Fecha pendiente'}</strong><small>{item.consultation_mode || 'Consulta psicológica'}</small></div><span className="soft-chip">{item.status || 'Programada'}</span></div>)}</div> : <div className="empty-state">Aún no hay citas registradas.</div>}</section> : null}
 
     {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
-    {tab === 'evaluations' ? <RecordPlaceholder icon={<HeartPulse size={26}/>} title="Evaluaciones" text="Este espacio quedará preparado para escalas, resultados y seguimiento clínico." /> : null}
+    {tab === 'evaluations' ? <PatientEvaluationsPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
     {tab === 'history' ? <RecordPlaceholder icon={<History size={26}/>} title="Historial de actividad" text="Mostrará cambios, citas, notas y eventos relevantes del expediente." /> : null}
   </>;

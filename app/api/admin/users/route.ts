@@ -5,11 +5,16 @@ import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { getSmtpSettings } from '@/lib/smtp-settings';
 
 const ALLOWED_ROLES = ['Administrador', 'Asistente', 'Psicóloga', 'Recepcionista'];
+const OPAQUE_MESSAGES = new Set(['{}', '[object Object]', 'null', 'undefined']);
 
 function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.') {
-  if (error instanceof Error && error.message) return error.message;
+  if (error instanceof Error && error.message && !OPAQUE_MESSAGES.has(error.message.trim())) {
+    return error.message;
+  }
 
-  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'string' && error.trim() && !OPAQUE_MESSAGES.has(error.trim())) {
+    return error;
+  }
 
   if (error && typeof error === 'object') {
     const candidate = error as {
@@ -18,6 +23,7 @@ function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.'
       details?: unknown;
       hint?: unknown;
       code?: unknown;
+      status?: unknown;
     };
 
     for (const value of [
@@ -26,7 +32,13 @@ function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.'
       candidate.details,
       candidate.hint,
     ]) {
-      if (typeof value === 'string' && value.trim()) return value;
+      if (
+        typeof value === 'string' &&
+        value.trim() &&
+        !OPAQUE_MESSAGES.has(value.trim())
+      ) {
+        return value;
+      }
     }
 
     if (typeof candidate.code === 'string' && candidate.code.trim()) {
@@ -38,7 +50,10 @@ function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.'
 }
 
 function friendlyAuthError(error: unknown) {
-  const message = errorMessage(error, 'No se pudo crear el acceso del usuario.');
+  const message = errorMessage(
+    error,
+    'Supabase rechazó la creación del usuario. Revisa en Authentication > Logs si existe un trigger antiguo o una restricción de la base de datos.'
+  );
   const normalized = message.toLowerCase();
 
   if (
@@ -52,6 +67,10 @@ function friendlyAuthError(error: unknown) {
 
   if (normalized.includes('invalid email')) {
     return 'El correo electrónico no tiene un formato válido.';
+  }
+
+  if (normalized.includes('database error creating new user')) {
+    return 'Supabase no pudo crear el usuario por una regla o trigger de la base de datos. Revisa y elimina el trigger antiguo relacionado con pending_users antes de volver a intentarlo.';
   }
 
   if (normalized.includes('password')) {
@@ -84,6 +103,25 @@ async function authorize(req: NextRequest) {
 
 function tempPassword() {
   return `Psy-${crypto.randomBytes(6).toString('base64url')}!9`;
+}
+
+async function authUserExists(email: string) {
+  const admin = getSupabaseAdmin();
+  let page = 1;
+
+  while (page <= 10) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
+    if (error) {
+      console.warn('Could not pre-check existing auth users:', error);
+      return false;
+    }
+
+    if (data.users.some((user) => user.email?.toLowerCase() === email)) return true;
+    if (data.users.length < 100) return false;
+    page += 1;
+  }
+
+  return false;
 }
 
 export async function POST(req: NextRequest) {
@@ -123,6 +161,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: 'El rol seleccionado no está permitido.' },
         { status: 400 }
+      );
+    }
+
+    if (await authUserExists(email)) {
+      return NextResponse.json(
+        { error: 'Ya existe un usuario registrado con ese correo electrónico.' },
+        { status: 409 }
       );
     }
 

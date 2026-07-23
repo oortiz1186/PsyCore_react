@@ -9,7 +9,6 @@ import {
   getLastSessionActivity,
   markSessionActivity,
   SESSION_ACTIVITY_KEY,
-  SESSION_TIMEOUT_MS,
   sessionIsExpired,
 } from '@/lib/session-activity';
 

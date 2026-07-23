@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ClipboardList, FileText, FolderOpen, HeartPulse, History, Mail, Phone, UserRound } from 'lucide-react';
+import { SoapNotesPanel } from '@/components/patients/soap-notes-panel';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
 type Patient = {
@@ -77,7 +78,7 @@ export default function PatientRecordPage() {
         .select('id,starts_at,status,consultation_mode')
         .eq('patient_id', params.id)
         .order('starts_at', { ascending: false })
-        .limit(8);
+        .limit(30);
       if (!appointmentsResult.error) setAppointments((appointmentsResult.data || []) as Appointment[]);
 
       if (current.psychologist_id) {
@@ -123,7 +124,7 @@ export default function PatientRecordPage() {
       </div>
       <div className="patient-record-actions">
         <Link className="btn btn-secondary" href={`/appointments?patient=${patient.id}`}>Agendar cita</Link>
-        <Link className="btn btn-primary" href={`/clinical-records?patient=${patient.id}`}>Nueva nota</Link>
+        <button className="btn btn-primary" onClick={() => setTab('notes')}>Nueva nota SOAP</button>
       </div>
     </section>
 
@@ -156,13 +157,13 @@ export default function PatientRecordPage() {
 
     {tab === 'appointments' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Agenda</span><h2>Citas del paciente</h2></div><Link className="btn btn-primary" href={`/appointments?patient=${patient.id}`}>Nueva cita</Link></div>{appointments.length ? <div className="appointment-list">{appointments.map(item => <div className="appointment-item" key={item.id}><span className="appointment-dot"/><div><strong>{item.starts_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.starts_at)) : 'Fecha pendiente'}</strong><small>{item.consultation_mode || 'Consulta psicológica'}</small></div><span className="soft-chip">{item.status || 'Programada'}</span></div>)}</div> : <div className="empty-state">Aún no hay citas registradas.</div>}</section> : null}
 
-    {tab === 'notes' ? <RecordPlaceholder icon={<ClipboardList size={26}/>} title="Notas SOAP" text="Aquí se integrará el historial clínico estructurado por sesión." action="Crear primera nota" href={`/clinical-records?patient=${patient.id}`} /> : null}
+    {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'evaluations' ? <RecordPlaceholder icon={<HeartPulse size={26}/>} title="Evaluaciones" text="Este espacio quedará preparado para escalas, resultados y seguimiento clínico." /> : null}
     {tab === 'files' ? <RecordPlaceholder icon={<FileText size={26}/>} title="Archivos clínicos" text="Aquí se concentrarán consentimientos, documentos, imágenes y archivos del paciente." /> : null}
     {tab === 'history' ? <RecordPlaceholder icon={<History size={26}/>} title="Historial de actividad" text="Mostrará cambios, citas, notas y eventos relevantes del expediente." /> : null}
   </>;
 }
 
-function RecordPlaceholder({ icon, title, text, action, href }: { icon: React.ReactNode; title: string; text: string; action?: string; href?: string }) {
-  return <section className="card record-placeholder"><div className="record-placeholder-icon">{icon}</div><h2>{title}</h2><p className="muted">{text}</p>{action && href ? <Link className="btn btn-primary" href={href}>{action}</Link> : null}</section>;
+function RecordPlaceholder({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
+  return <section className="card record-placeholder"><div className="record-placeholder-icon">{icon}</div><h2>{title}</h2><p className="muted">{text}</p></section>;
 }

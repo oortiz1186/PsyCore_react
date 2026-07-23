@@ -20,19 +20,32 @@ type ApiPayload = {
 };
 
 const ALLOWED_ROLES = ['Administrador', 'Asistente', 'Psicóloga', 'Recepcionista'];
+const OPAQUE_ERRORS = new Set(['{}', '[object Object]', 'null', 'undefined']);
 
 function readableApiError(value: unknown) {
-  if (typeof value === 'string' && value.trim()) return value;
+  if (
+    typeof value === 'string' &&
+    value.trim() &&
+    !OPAQUE_ERRORS.has(value.trim())
+  ) {
+    return value;
+  }
 
   if (value && typeof value === 'object') {
     const candidate = value as { message?: unknown; details?: unknown; hint?: unknown };
 
     for (const item of [candidate.message, candidate.details, candidate.hint]) {
-      if (typeof item === 'string' && item.trim()) return item;
+      if (
+        typeof item === 'string' &&
+        item.trim() &&
+        !OPAQUE_ERRORS.has(item.trim())
+      ) {
+        return item;
+      }
     }
   }
 
-  return 'No se pudo crear el usuario.';
+  return 'No se pudo crear el usuario. Revisa la terminal de Next.js para ver el detalle.';
 }
 
 export default function UsersPage() {
@@ -103,7 +116,7 @@ export default function UsersPage() {
         try {
           data = JSON.parse(raw) as ApiPayload;
         } catch {
-          if (!response.ok) throw new Error(raw);
+          if (!response.ok) throw new Error(readableApiError(raw));
         }
       }
 

@@ -1,7 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { UserFormModal, UserRole } from '@/components/users/user-form-modal';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  PsychologistOption,
+  UserFormModal,
+  UserRole,
+} from '@/components/users/user-form-modal';
 import { UserEditModal } from '@/components/users/user-edit-modal';
 import { UserAccessModal } from '@/components/users/user-access-modal';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
@@ -12,6 +16,8 @@ type User = {
   email?: string | null;
   role_id?: number | null;
   active?: boolean | null;
+  psychologist_id?: string | null;
+  psychologist_name?: string | null;
   roles?: UserRole | UserRole[] | null;
   created_at?: string | null;
   last_sign_in_at?: string | null;
@@ -23,9 +29,14 @@ type ApiPayload = {
   users?: User[];
   passwordSent?: boolean;
   emailWarning?: string;
+  email?: string;
 };
 
 const ALLOWED_ROLES = ['Administrador', 'Asistente', 'Psicóloga', 'Recepcionista'];
+
+function roleName(user: User) {
+  return Array.isArray(user.roles) ? user.roles[0]?.name : user.roles?.name;
+}
 
 function errorText(value: unknown, fallback = 'Ocurrió un error inesperado.') {
   if (value instanceof Error && value.message) return value.message;
@@ -57,6 +68,13 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [ok, setOk] = useState('');
+
+  const psychologists = useMemo<PsychologistOption[]>(
+    () => users
+      .filter((user) => roleName(user) === 'Psicóloga' && user.active !== false)
+      .map((user) => ({ id: user.id, full_name: user.full_name, email: user.email })),
+    [users]
+  );
 
   async function authHeaders() {
     const { data: { session } } = await getSupabaseBrowser().auth.getSession();
@@ -101,7 +119,12 @@ export default function UsersPage() {
 
   useEffect(() => { void load(); }, []);
 
-  async function createUser(values: { fullName: string; email: string; roleId: number }) {
+  async function createUser(values: {
+    fullName: string;
+    email: string;
+    roleId: number;
+    psychologistId: string | null;
+  }) {
     setSaving(true); setMsg(''); setOk('');
     try {
       const response = await fetch('/api/admin/users', {
@@ -151,7 +174,10 @@ export default function UsersPage() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Administración de usuarios</h1><p className="muted">Accesos, roles y auditoría del personal.</p></div>
+        <div>
+          <h1>Administración de usuarios</h1>
+          <p className="muted">Accesos, roles, psicóloga responsable y auditoría del personal.</p>
+        </div>
         <button className="btn btn-primary" type="button" onClick={() => { setMsg(''); setOk(''); setNewOpen(true); }}>Nuevo usuario</button>
       </div>
 
@@ -160,14 +186,21 @@ export default function UsersPage() {
 
       <div className="card table-wrap">
         <table className="table users-admin-table">
-          <thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th>Creado por</th><th>Acciones</th></tr></thead>
+          <thead><tr><th>Usuario</th><th>Rol</th><th>Psicóloga vinculada</th><th>Estado</th><th>Último acceso</th><th>Creado por</th><th>Acciones</th></tr></thead>
           <tbody>
             {users.map((user) => {
-              const role = Array.isArray(user.roles) ? user.roles[0]?.name : user.roles?.name;
+              const role = roleName(user);
               return (
                 <tr key={user.id}>
                   <td><strong>{user.full_name || 'Sin nombre'}</strong><small className="table-subtext">{user.email || '—'}</small></td>
                   <td>{role || 'Sin rol'}</td>
+                  <td>
+                    {role === 'Psicóloga'
+                      ? 'Ella misma'
+                      : role === 'Asistente'
+                        ? user.psychologist_name || 'Sin asignar'
+                        : 'Acceso general'}
+                  </td>
                   <td><span className={`chip ${user.active === false ? 'chip-inactive' : ''}`}>{user.active === false ? 'Inactivo' : 'Activo'}</span></td>
                   <td>{formatDate(user.last_sign_in_at)}</td>
                   <td>{user.creator_name || 'Registro anterior'}</td>
@@ -185,7 +218,14 @@ export default function UsersPage() {
         </table>
       </div>
 
-      <UserFormModal open={newOpen} roles={roles} saving={saving} onClose={() => setNewOpen(false)} onSubmit={createUser} />
+      <UserFormModal
+        open={newOpen}
+        roles={roles}
+        psychologists={psychologists}
+        saving={saving}
+        onClose={() => setNewOpen(false)}
+        onSubmit={createUser}
+      />
       <UserEditModal open={Boolean(editing)} user={editing} roles={roles} saving={saving} onClose={() => setEditing(null)} onSubmit={updateUser} />
       <UserAccessModal
         open={Boolean(accessUser)}

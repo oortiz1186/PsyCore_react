@@ -3,6 +3,7 @@ import './globals.css';
 import './design-system.css';
 import './patients.css';
 import './soap-notes.css';
+import './patient-files.css';
 
 export const metadata: Metadata = {
   title: 'PsyCore',

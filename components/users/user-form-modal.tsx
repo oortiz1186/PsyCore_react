@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/components/ui/modal';
 
 export type UserRole = {
@@ -8,23 +8,37 @@ export type UserRole = {
   name: string;
 };
 
+export type PsychologistOption = {
+  id: string;
+  full_name?: string | null;
+  email?: string | null;
+};
+
 type UserFormModalProps = {
   open: boolean;
   roles: UserRole[];
+  psychologists: PsychologistOption[];
   saving: boolean;
   onClose: () => void;
-  onSubmit: (values: { fullName: string; email: string; roleId: number }) => Promise<void>;
+  onSubmit: (values: {
+    fullName: string;
+    email: string;
+    roleId: number;
+    psychologistId: string | null;
+  }) => Promise<void>;
 };
 
 const initialForm = {
   fullName: '',
   email: '',
   roleId: '',
+  psychologistId: '',
 };
 
 export function UserFormModal({
   open,
   roles,
+  psychologists,
   saving,
   onClose,
   onSubmit,
@@ -32,12 +46,23 @@ export function UserFormModal({
   const [form, setForm] = useState(initialForm);
   const [error, setError] = useState('');
 
+  const selectedRole = useMemo(
+    () => roles.find((role) => role.id === Number(form.roleId))?.name,
+    [form.roleId, roles]
+  );
+
   useEffect(() => {
     if (!open) {
       setForm(initialForm);
       setError('');
     }
   }, [open]);
+
+  useEffect(() => {
+    if (selectedRole !== 'Asistente') {
+      setForm((current) => ({ ...current, psychologistId: '' }));
+    }
+  }, [selectedRole]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,8 +77,18 @@ export function UserFormModal({
       return;
     }
 
+    if (selectedRole === 'Asistente' && !form.psychologistId) {
+      setError('Selecciona la psicóloga responsable de esta asistente.');
+      return;
+    }
+
     try {
-      await onSubmit({ fullName, email, roleId });
+      await onSubmit({
+        fullName,
+        email,
+        roleId,
+        psychologistId: selectedRole === 'Asistente' ? form.psychologistId : null,
+      });
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -67,7 +102,7 @@ export function UserFormModal({
     <Modal
       open={open}
       title="Nuevo usuario"
-      description="Crea el acceso y asigna el rol que tendrá dentro de PsyCore."
+      description="Crea el acceso, asigna el rol y define el alcance de información."
       onClose={onClose}
       closeDisabled={saving}
     >
@@ -113,6 +148,41 @@ export function UserFormModal({
             ))}
           </select>
         </label>
+
+        {selectedRole === 'Asistente' ? (
+          <label className="field">
+            Psicóloga responsable
+            <select
+              value={form.psychologistId}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, psychologistId: event.target.value }))
+              }
+              required
+            >
+              <option value="">Selecciona una psicóloga</option>
+              {psychologists.map((psychologist) => (
+                <option key={psychologist.id} value={psychologist.id}>
+                  {psychologist.full_name || psychologist.email || 'Psicóloga'}
+                </option>
+              ))}
+            </select>
+            <small className="muted">
+              La asistente solamente podrá consultar la información de esta psicóloga.
+            </small>
+          </label>
+        ) : null}
+
+        {selectedRole === 'Psicóloga' ? (
+          <div className="notice-card">
+            La psicóloga quedará vinculada consigo misma y solo verá sus pacientes, citas y expedientes.
+          </div>
+        ) : null}
+
+        {selectedRole === 'Recepcionista' ? (
+          <div className="notice-card">
+            La recepcionista tendrá acceso operativo a la información de todas las psicólogas.
+          </div>
+        ) : null}
 
         {error ? <div className="error">{error}</div> : null}
 

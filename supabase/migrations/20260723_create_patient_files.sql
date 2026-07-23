@@ -13,7 +13,7 @@ on conflict (id) do update set
 
 create table if not exists public.patient_files (
   id uuid primary key default gen_random_uuid(),
-  patient_id uuid not null references public.patients(id) on delete cascade,
+  patient_id bigint not null references public.patients(id) on delete cascade,
   storage_path text not null unique,
   original_name text not null,
   display_name text not null,

@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ClipboardList, FileText, FolderOpen, HeartPulse, History, Mail, Phone, UserRound } from 'lucide-react';
+import { CalendarDays, ClipboardList, FolderOpen, HeartPulse, History, Mail, Phone, UserRound } from 'lucide-react';
+import { PatientFilesPanel } from '@/components/patients/patient-files-panel';
 import { SoapNotesPanel } from '@/components/patients/soap-notes-panel';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
@@ -159,7 +160,7 @@ export default function PatientRecordPage() {
 
     {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'evaluations' ? <RecordPlaceholder icon={<HeartPulse size={26}/>} title="Evaluaciones" text="Este espacio quedará preparado para escalas, resultados y seguimiento clínico." /> : null}
-    {tab === 'files' ? <RecordPlaceholder icon={<FileText size={26}/>} title="Archivos clínicos" text="Aquí se concentrarán consentimientos, documentos, imágenes y archivos del paciente." /> : null}
+    {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
     {tab === 'history' ? <RecordPlaceholder icon={<History size={26}/>} title="Historial de actividad" text="Mostrará cambios, citas, notas y eventos relevantes del expediente." /> : null}
   </>;
 }

@@ -4,6 +4,14 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
+import {
+  clearSessionActivity,
+  getLastSessionActivity,
+  markSessionActivity,
+  SESSION_ACTIVITY_KEY,
+  SESSION_TIMEOUT_MS,
+  sessionIsExpired,
+} from '@/lib/session-activity';
 
 type Profile = {
   full_name?: string | null;
@@ -26,6 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
+  const activityThrottleRef = useRef(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [ready, setReady] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -42,27 +51,54 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setUserMenuOpen(false);
       }
     };
+
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
 
   useEffect(() => {
-    void (async () => {
-      const supabase = getSupabaseBrowser();
-      const { data } = await supabase.auth.getUser();
-      if (!data.user) {
+    let active = true;
+    const supabase = getSupabaseBrowser();
+
+    async function closeExpiredSession() {
+      if (!active) return;
+      await supabase.auth.signOut();
+      clearSessionActivity();
+      setReady(false);
+      router.replace('/login?reason=expired');
+    }
+
+    async function restoreSession() {
+      const { data } = await supabase.auth.getSession();
+
+      if (!active) return;
+
+      if (!data.session) {
+        clearSessionActivity();
         router.replace('/login');
         return;
+      }
+
+      if (sessionIsExpired()) {
+        await closeExpiredSession();
+        return;
+      }
+
+      if (getLastSessionActivity() === null) {
+        markSessionActivity();
       }
 
       const { data: currentProfile } = await supabase
         .from('profiles')
         .select('full_name,email,active,must_change_password,roles(name)')
-        .eq('id', data.user.id)
+        .eq('id', data.session.user.id)
         .maybeSingle();
+
+      if (!active) return;
 
       if (currentProfile?.active === false) {
         await supabase.auth.signOut();
+        clearSessionActivity();
         router.replace('/login');
         return;
       }
@@ -72,9 +108,70 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      setProfile({ ...currentProfile, email: currentProfile?.email || data.user.email });
+      setProfile({
+        ...currentProfile,
+        email: currentProfile?.email || data.session.user.email,
+      });
       setReady(true);
-    })();
+    }
+
+    void restoreSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        clearSessionActivity();
+        setReady(false);
+        router.replace('/login');
+      }
+    });
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'scroll',
+    ];
+
+    const registerActivity = () => {
+      const now = Date.now();
+      if (now - activityThrottleRef.current < 60_000) return;
+      activityThrottleRef.current = now;
+      markSessionActivity(now);
+    };
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, registerActivity, { passive: true });
+    });
+
+    const visibilityHandler = () => {
+      if (document.visibilityState === 'visible') {
+        if (sessionIsExpired()) void closeExpiredSession();
+        else registerActivity();
+      }
+    };
+
+    const storageHandler = (event: StorageEvent) => {
+      if (event.key !== SESSION_ACTIVITY_KEY) return;
+      if (sessionIsExpired()) void closeExpiredSession();
+    };
+
+    document.addEventListener('visibilitychange', visibilityHandler);
+    window.addEventListener('storage', storageHandler);
+
+    const expirationTimer = window.setInterval(() => {
+      if (sessionIsExpired()) void closeExpiredSession();
+    }, 60_000);
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, registerActivity);
+      });
+      document.removeEventListener('visibilitychange', visibilityHandler);
+      window.removeEventListener('storage', storageHandler);
+      window.clearInterval(expirationTimer);
+    };
   }, [path, router]);
 
   function toggleSidebar() {
@@ -85,6 +182,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   async function logout() {
     await getSupabaseBrowser().auth.signOut();
+    clearSessionActivity();
     router.replace('/login');
   }
 
@@ -93,6 +191,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const role = Array.isArray(profile?.roles)
     ? profile?.roles[0]?.name
     : profile?.roles?.name;
+
   const initials = (profile?.full_name || profile?.email || 'U')
     .split(' ')
     .slice(0, 2)
@@ -128,12 +227,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <small>{role || 'PsyCore'}</small>
                 </span>
               ) : null}
-              {!collapsed ? <span className={`user-caret ${userMenuOpen ? 'open' : ''}`}>▾</span> : null}
+              {!collapsed ? (
+                <span className={`user-caret ${userMenuOpen ? 'open' : ''}`}>▾</span>
+              ) : null}
             </button>
 
             {userMenuOpen ? (
               <div className={`user-popover ${collapsed ? 'user-popover-collapsed' : ''}`}>
-                <button type="button" onClick={() => { setUserMenuOpen(false); router.push('/change-password'); }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    router.push('/change-password');
+                  }}
+                >
                   Cambiar contraseña
                 </button>
                 <button type="button" className="danger-link" onClick={logout}>

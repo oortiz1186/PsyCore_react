@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import './design-system.css';
+import './patients.css';
 
 export const metadata: Metadata = {
   title: 'PsyCore',

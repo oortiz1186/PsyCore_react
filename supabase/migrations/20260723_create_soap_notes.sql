@@ -1,7 +1,7 @@
 create table if not exists public.soap_notes (
   id uuid primary key default gen_random_uuid(),
-  patient_id uuid not null references public.patients(id) on delete cascade,
-  appointment_id uuid null references public.appointments(id) on delete set null,
+  patient_id bigint not null references public.patients(id) on delete cascade,
+  appointment_id bigint null references public.appointments(id) on delete set null,
   session_date date not null default current_date,
   subjective text not null,
   objective text not null,

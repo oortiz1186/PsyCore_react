@@ -13,7 +13,27 @@ type User = {
   roles?: UserRole | UserRole[] | null;
 };
 
+type ApiPayload = {
+  error?: unknown;
+  passwordSent?: boolean;
+  emailWarning?: string;
+};
+
 const ALLOWED_ROLES = ['Administrador', 'Asistente', 'Psicóloga', 'Recepcionista'];
+
+function readableApiError(value: unknown) {
+  if (typeof value === 'string' && value.trim()) return value;
+
+  if (value && typeof value === 'object') {
+    const candidate = value as { message?: unknown; details?: unknown; hint?: unknown };
+
+    for (const item of [candidate.message, candidate.details, candidate.hint]) {
+      if (typeof item === 'string' && item.trim()) return item;
+    }
+  }
+
+  return 'No se pudo crear el usuario.';
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -63,28 +83,46 @@ export default function UsersPage() {
         data: { session },
       } = await supabase.auth.getSession();
 
+      if (!session?.access_token) {
+        throw new Error('La sesión expiró. Inicia sesión nuevamente.');
+      }
+
       const response = await fetch('/api/admin/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify(values),
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data: ApiPayload = {};
 
-      if (!response.ok) {
-        throw new Error(data.error || 'No se pudo crear el usuario.');
+      if (raw) {
+        try {
+          data = JSON.parse(raw) as ApiPayload;
+        } catch {
+          if (!response.ok) throw new Error(raw);
+        }
       }
 
-      setOk(
-        data.passwordSent
-          ? 'Usuario creado y correo enviado.'
-          : 'Usuario creado. Configura SMTP para enviar el acceso.'
-      );
+      if (!response.ok) {
+        throw new Error(readableApiError(data.error));
+      }
+
+      if (data.passwordSent) {
+        setOk('Usuario creado y correo enviado correctamente.');
+      } else if (data.emailWarning) {
+        setOk(data.emailWarning);
+      } else {
+        setOk('Usuario creado correctamente.');
+      }
+
       setModalOpen(false);
       await load();
+    } catch (error) {
+      throw new Error(readableApiError(error));
     } finally {
       setSaving(false);
     }

@@ -14,7 +14,6 @@ type Note = {
   id: string;
   patient_id: string;
   note_date?: string | null;
-  content?: string | null;
   subjective?: string | null;
   objective?: string | null;
   assessment?: string | null;
@@ -44,7 +43,7 @@ export default function ClinicalRecords() {
     const s = getSupabaseBrowser();
     const [notesResult, patientsResult] = await Promise.all([
       s.from('clinical_notes')
-        .select('id,patient_id,note_date,content,subjective,objective,assessment,plan,created_at,patients(id,first_name,last_name,psychologist_id)')
+        .select('id,patient_id,note_date,subjective,objective,assessment,plan,created_at,patients(id,first_name,last_name,psychologist_id)')
         .order('created_at', { ascending: false }),
       s.from('patients')
         .select('id,first_name,last_name,psychologist_id')
@@ -126,7 +125,7 @@ export default function ClinicalRecords() {
           {rows.length ? rows.map(row => <tr key={row.id}>
             <td>{patientName(row.patients)}</td>
             <td>{row.note_date ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.note_date)) : '—'}</td>
-            <td>{row.assessment || row.content || '—'}</td>
+            <td>{row.assessment || '—'}</td>
             <td>{row.plan || '—'}</td>
           </tr>) : <tr><td colSpan={4}><div className="empty-state">Aún no hay notas clínicas registradas.</div></td></tr>}
         </tbody>

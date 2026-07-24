@@ -1,4 +1,5 @@
 import '@/app/patients-crm.css';
+import '@/app/availability-settings.css';
 import AppShell from '@/components/app-shell';
 
 export default function ProtectedLayout({children}:{children:React.ReactNode}){

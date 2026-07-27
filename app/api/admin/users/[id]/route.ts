@@ -73,11 +73,12 @@ export async function PATCH(
     const { id } = await context.params;
     const body = await req.json();
     const fullName = typeof body.fullName === 'string' ? body.fullName.trim() : '';
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
     const roleId = Number(body.roleId);
     const active = Boolean(body.active);
 
-    if (!fullName || !Number.isInteger(roleId) || roleId <= 0) {
-      return NextResponse.json({ error: 'Nombre y rol son obligatorios.' }, { status: 400 });
+    if (!fullName || !email || !/^\S+@\S+\.\S+$/.test(email) || !Number.isInteger(roleId) || roleId <= 0) {
+      return NextResponse.json({ error: 'Nombre, correo válido y rol son obligatorios.' }, { status: 400 });
     }
 
     const admin = getSupabaseAdmin();
@@ -91,31 +92,49 @@ export async function PATCH(
       return NextResponse.json({ error: 'El rol seleccionado no está permitido.' }, { status: 400 });
     }
 
+    const { data: existingAuth, error: existingAuthError } = await admin.auth.admin.getUserById(id);
+    if (existingAuthError || !existingAuth.user) {
+      return NextResponse.json({ error: 'No se encontró el usuario en Supabase Auth.' }, { status: 404 });
+    }
+
+    const previousEmail = existingAuth.user.email?.toLowerCase() || '';
+    const emailChanged = previousEmail !== email;
+
+    const { error: authError } = await admin.auth.admin.updateUserById(id, {
+      email,
+      email_confirm: true,
+      user_metadata: { ...existingAuth.user.user_metadata, full_name: fullName },
+      ban_duration: active ? 'none' : '876000h',
+    });
+
+    if (authError) {
+      return NextResponse.json(
+        { error: messageOf(authError, 'No se pudo actualizar el acceso del usuario.') },
+        { status: 400 }
+      );
+    }
+
     const { error: profileError } = await admin
       .from('profiles')
-      .update({ full_name: fullName, role_id: roleId, active })
+      .update({ full_name: fullName, email, role_id: roleId, active })
       .eq('id', id);
 
     if (profileError) {
+      if (emailChanged && previousEmail) {
+        await admin.auth.admin.updateUserById(id, {
+          email: previousEmail,
+          email_confirm: true,
+          user_metadata: existingAuth.user.user_metadata,
+          ban_duration: existingAuth.user.banned_until ? '876000h' : 'none',
+        });
+      }
       return NextResponse.json(
         { error: messageOf(profileError, 'No se pudo actualizar el perfil.') },
         { status: 400 }
       );
     }
 
-    const { error: authError } = await admin.auth.admin.updateUserById(id, {
-      user_metadata: { full_name: fullName },
-      ban_duration: active ? 'none' : '876000h',
-    });
-
-    if (authError) {
-      return NextResponse.json(
-        { error: messageOf(authError, 'El perfil cambió, pero Auth no pudo actualizarse.') },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, emailChanged });
   } catch (error) {
     return NextResponse.json(
       { error: messageOf(error, 'No se pudo actualizar el usuario.') },

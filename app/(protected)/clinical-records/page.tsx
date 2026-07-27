@@ -1,6 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
+import { Eye } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
 type Patient = {
@@ -47,6 +49,10 @@ function patientName(patient?: Patient | Patient[] | null) {
   return `${value.first_name || ''} ${value.last_name || ''}`.trim() || 'Paciente sin nombre';
 }
 
+function patientId(note: Note) {
+  return one(note.patients)?.id || note.patient_id;
+}
+
 function psychologistName(psychologist: Psychologist) {
   return psychologist.full_name || psychologist.email || 'Psicóloga';
 }
@@ -91,11 +97,11 @@ export default function ClinicalRecords() {
     void load();
   }, []);
 
-  function selectPatient(patientId: string) {
-    const patient = patients.find(item => item.id === patientId);
+  function selectPatient(selectedPatientId: string) {
+    const patient = patients.find(item => item.id === selectedPatientId);
     setForm(current => ({
       ...current,
-      patient_id: patientId,
+      patient_id: selectedPatientId,
       psychologist_id: patient?.psychologist_id || current.psychologist_id || '',
     }));
   }
@@ -138,7 +144,7 @@ export default function ClinicalRecords() {
     <div className="page-head">
       <div>
         <h1>Expedientes</h1>
-        <p className="muted">Notas clínicas protegidas por psicóloga responsable.</p>
+        <p className="muted">Consulta las notas clínicas y abre el expediente completo de cada paciente.</p>
       </div>
       <button className="btn btn-primary" onClick={() => setShow(!show)}>{show ? 'Cancelar' : 'Nueva nota'}</button>
     </div>
@@ -171,14 +177,18 @@ export default function ClinicalRecords() {
 
     <div className="card table-wrap">
       <table className="table">
-        <thead><tr><th>Paciente</th><th>Fecha</th><th>Evaluación</th><th>Plan</th></tr></thead>
+        <thead><tr><th>Paciente</th><th>Fecha</th><th>Evaluación</th><th>Plan</th><th>Acciones</th></tr></thead>
         <tbody>
-          {rows.length ? rows.map(row => <tr key={row.id}>
-            <td>{patientName(row.patients)}</td>
-            <td>{row.note_date ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.note_date)) : '—'}</td>
-            <td>{row.assessment || '—'}</td>
-            <td>{row.plan || '—'}</td>
-          </tr>) : <tr><td colSpan={4}><div className="empty-state">Aún no hay notas clínicas registradas.</div></td></tr>}
+          {rows.length ? rows.map(row => {
+            const recordPatientId = patientId(row);
+            return <tr key={row.id}>
+              <td><Link href={`/patients/${recordPatientId}`} className="table-link">{patientName(row.patients)}</Link></td>
+              <td>{row.note_date ? new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(row.note_date)) : '—'}</td>
+              <td>{row.assessment || '—'}</td>
+              <td>{row.plan || '—'}</td>
+              <td><Link href={`/patients/${recordPatientId}`} className="btn btn-secondary btn-small"><Eye size={15}/> Ver expediente</Link></td>
+            </tr>;
+          }) : <tr><td colSpan={5}><div className="empty-state">Aún no hay notas clínicas registradas.</div></td></tr>}
         </tbody>
       </table>
     </div>

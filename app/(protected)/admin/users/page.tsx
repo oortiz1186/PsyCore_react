@@ -137,7 +137,7 @@ export default function UsersPage() {
     } finally { setSaving(false); }
   }
 
-  async function updateUser(values: { fullName: string; roleId: number; active: boolean }) {
+  async function updateUser(values: { fullName: string; email: string; roleId: number; active: boolean }) {
     if (!editing) return;
     setSaving(true); setMsg(''); setOk('');
     try {
@@ -145,7 +145,7 @@ export default function UsersPage() {
         method: 'PATCH', headers: await authHeaders(), body: JSON.stringify(values),
       });
       await readResponse(response);
-      setOk('Usuario actualizado correctamente.');
+      setOk('Usuario actualizado correctamente. Si cambió el correo, deberá iniciar sesión con el nuevo.');
       setEditing(null);
       await load();
     } finally { setSaving(false); }

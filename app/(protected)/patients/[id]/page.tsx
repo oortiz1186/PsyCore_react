@@ -60,6 +60,7 @@ function timelineIcon(kind: TimelineItem['kind']) {
 
 export default function PatientRecordPage() {
   const params = useParams<{ id: string }>();
+  const patientId = Number(params.id);
   const [patient, setPatient] = useState<Patient | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
@@ -71,13 +72,19 @@ export default function PatientRecordPage() {
 
   useEffect(() => {
     async function load() {
+      if (!Number.isSafeInteger(patientId) || patientId <= 0) {
+        setError('El identificador del paciente no es válido.');
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError('');
       const supabase = getSupabaseBrowser();
       const { data, error: patientError } = await supabase
         .from('patients')
         .select('id,first_name,last_name,preferred_name,email,phone,birth_date,status,clinical_alert,psychologist_id,created_at')
-        .eq('id', params.id)
+        .eq('id', patientId)
         .maybeSingle();
 
       if (patientError || !data) {
@@ -90,11 +97,11 @@ export default function PatientRecordPage() {
       setPatient(current);
 
       const [appointmentsResult, soapResult, evaluationsResult, filesResult, goalsResult] = await Promise.all([
-        supabase.from('appointments').select('id,starts_at,status,consultation_mode').eq('patient_id', params.id).order('starts_at', { ascending: false }).limit(50),
-        supabase.from('soap_notes').select('id,session_date,status,updated_at').eq('patient_id', params.id).order('session_date', { ascending: false }).limit(50),
-        supabase.from('patient_evaluations').select('id,instrument,custom_instrument_name,evaluation_date,severity,created_at').eq('patient_id', Number(params.id)).order('evaluation_date', { ascending: false }).limit(50),
-        supabase.from('patient_files').select('id,display_name,document_type,created_at').eq('patient_id', params.id).order('created_at', { ascending: false }).limit(50),
-        supabase.from('therapy_goals').select('id,title,status,progress,created_at,updated_at').eq('patient_id', params.id).order('updated_at', { ascending: false }).limit(50),
+        supabase.from('appointments').select('id,starts_at,status,consultation_mode').eq('patient_id', patientId).order('starts_at', { ascending: false }).limit(50),
+        supabase.from('soap_notes').select('id,session_date,status,updated_at').eq('patient_id', patientId).order('session_date', { ascending: false }).limit(50),
+        supabase.from('patient_evaluations').select('id,instrument,custom_instrument_name,evaluation_date,severity,created_at').eq('patient_id', patientId).order('evaluation_date', { ascending: false }).limit(50),
+        supabase.from('patient_files').select('id,display_name,document_type,created_at').eq('patient_id', patientId).order('created_at', { ascending: false }).limit(50),
+        supabase.from('therapy_goals').select('id,title,status,progress,created_at,updated_at').eq('patient_id', patientId).order('updated_at', { ascending: false }).limit(50),
       ]);
 
       const appointmentRows = (appointmentsResult.data || []) as Appointment[];
@@ -127,7 +134,7 @@ export default function PatientRecordPage() {
       setLoading(false);
     }
     void load();
-  }, [params.id]);
+  }, [patientId]);
 
   const nextAppointment = useMemo(() => appointments
     .filter((item) => item.starts_at && new Date(item.starts_at) >= new Date())
@@ -175,7 +182,7 @@ export default function PatientRecordPage() {
     {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'evaluations' ? <PatientEvaluationsPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
-    {tab === 'goals' ? <TherapyGoalsPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
+    {tab === 'goals' ? <TherapyGoalsPanel patientId={patientId} psychologistId={patient.psychologist_id} /> : null}
     {tab === 'history' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Actividad del expediente</span><h2>Historial clínico</h2><p className="muted">Citas, notas, evaluaciones, documentos y objetivos en orden cronológico.</p></div><span className="count-badge">{timeline.length}</span></div>{timeline.length ? <div className="record-timeline">{timeline.map(item => <article className="record-timeline-item" key={item.id}><div className={`record-timeline-icon kind-${item.kind}`}>{timelineIcon(item.kind)}</div><div><strong>{item.title}</strong><p>{item.detail}</p><time>{new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.occurredAt))}</time></div></article>)}</div> : <div className="empty-state">Aún no hay actividad registrada.</div>}</section> : null}
   </>;
 }

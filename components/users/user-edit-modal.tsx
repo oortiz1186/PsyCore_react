@@ -18,11 +18,12 @@ type Props = {
   roles: UserRole[];
   saving: boolean;
   onClose: () => void;
-  onSubmit: (values: { fullName: string; roleId: number; active: boolean }) => Promise<void>;
+  onSubmit: (values: { fullName: string; email: string; roleId: number; active: boolean }) => Promise<void>;
 };
 
 export function UserEditModal({ open, user, roles, saving, onClose, onSubmit }: Props) {
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [roleId, setRoleId] = useState('');
   const [active, setActive] = useState(true);
   const [error, setError] = useState('');
@@ -30,6 +31,7 @@ export function UserEditModal({ open, user, roles, saving, onClose, onSubmit }: 
   useEffect(() => {
     if (open && user) {
       setFullName(user.full_name || '');
+      setEmail(user.email || '');
       setRoleId(user.role_id ? String(user.role_id) : '');
       setActive(user.active !== false);
       setError('');
@@ -40,13 +42,18 @@ export function UserEditModal({ open, user, roles, saving, onClose, onSubmit }: 
     event.preventDefault();
     setError('');
     const name = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
     const role = Number(roleId);
-    if (!name || !role) {
-      setError('Captura nombre y rol.');
+    if (!name || !normalizedEmail || !role) {
+      setError('Captura nombre, correo y rol.');
+      return;
+    }
+    if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      setError('Captura un correo electrónico válido.');
       return;
     }
     try {
-      await onSubmit({ fullName: name, roleId: role, active });
+      await onSubmit({ fullName: name, email: normalizedEmail, roleId: role, active });
     } catch (error) {
       setError(error instanceof Error ? error.message : 'No se pudo actualizar el usuario.');
     }
@@ -56,7 +63,7 @@ export function UserEditModal({ open, user, roles, saving, onClose, onSubmit }: 
     <Modal
       open={open}
       title="Editar usuario"
-      description={user?.email || 'Actualiza los datos y permisos del usuario.'}
+      description="Actualiza los datos de acceso y permisos del usuario."
       onClose={onClose}
       closeDisabled={saving}
     >
@@ -64,6 +71,16 @@ export function UserEditModal({ open, user, roles, saving, onClose, onSubmit }: 
         <label className="field">
           Nombre completo
           <input value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+        </label>
+        <label className="field">
+          Correo electrónico
+          <input
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            required
+          />
         </label>
         <label className="field">
           Rol

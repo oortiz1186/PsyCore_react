@@ -1,7 +1,7 @@
 -- Sprint 3.1: Objetivos terapéuticos
 create table if not exists public.therapy_goals (
   id uuid primary key default gen_random_uuid(),
-  patient_id uuid not null references public.patients(id) on delete cascade,
+  patient_id bigint not null references public.patients(id) on delete cascade,
   psychologist_id uuid references public.profiles(id) on delete set null,
   title text not null,
   description text,

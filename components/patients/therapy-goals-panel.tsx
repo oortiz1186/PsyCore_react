@@ -9,7 +9,7 @@ type GoalPriority = 'low' | 'medium' | 'high';
 
 type TherapyGoal = {
   id: string;
-  patient_id: string;
+  patient_id: number;
   psychologist_id?: string | null;
   title: string;
   description?: string | null;
@@ -56,7 +56,7 @@ const priorityLabel: Record<GoalPriority, string> = {
   high: 'Prioridad alta',
 };
 
-export function TherapyGoalsPanel({ patientId, psychologistId }: { patientId: string; psychologistId?: string | null }) {
+export function TherapyGoalsPanel({ patientId, psychologistId }: { patientId: number; psychologistId?: string | null }) {
   const [goals, setGoals] = useState<TherapyGoal[]>([]);
   const [filter, setFilter] = useState<'all' | GoalStatus>('all');
   const [form, setForm] = useState<GoalForm>(emptyForm());

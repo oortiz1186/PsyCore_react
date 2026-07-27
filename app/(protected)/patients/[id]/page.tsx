@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, ClipboardList, FileText, FolderOpen, HeartPulse, History, Mail, Phone, UserRound } from 'lucide-react';
+import { CalendarDays, ClipboardList, FileText, FolderOpen, HeartPulse, History, Mail, Phone, Target, UserRound } from 'lucide-react';
 import { PatientEvaluationsPanel } from '@/components/patients/patient-evaluations-panel';
 import { PatientFilesPanel } from '@/components/patients/patient-files-panel';
 import { SoapNotesPanel } from '@/components/patients/soap-notes-panel';
+import { TherapyGoalsPanel } from '@/components/patients/therapy-goals-panel';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
 type Patient = {
@@ -24,8 +25,8 @@ type Patient = {
 };
 
 type Appointment = { id: string; starts_at?: string | null; status?: string | null; consultation_mode?: string | null };
-type TimelineItem = { id: string; kind: 'appointment' | 'soap' | 'evaluation' | 'file' | 'patient'; title: string; detail: string; occurredAt: string };
-type TabKey = 'overview' | 'appointments' | 'notes' | 'evaluations' | 'files' | 'history';
+type TimelineItem = { id: string; kind: 'appointment' | 'soap' | 'evaluation' | 'file' | 'goal' | 'patient'; title: string; detail: string; occurredAt: string };
+type TabKey = 'overview' | 'appointments' | 'notes' | 'evaluations' | 'files' | 'goals' | 'history';
 
 type RecordStats = {
   appointments: number;
@@ -53,6 +54,7 @@ function timelineIcon(kind: TimelineItem['kind']) {
   if (kind === 'soap') return <ClipboardList size={17}/>;
   if (kind === 'evaluation') return <HeartPulse size={17}/>;
   if (kind === 'file') return <FileText size={17}/>;
+  if (kind === 'goal') return <Target size={17}/>;
   return <UserRound size={17}/>;
 }
 
@@ -87,17 +89,19 @@ export default function PatientRecordPage() {
       const current = data as Patient;
       setPatient(current);
 
-      const [appointmentsResult, soapResult, evaluationsResult, filesResult] = await Promise.all([
+      const [appointmentsResult, soapResult, evaluationsResult, filesResult, goalsResult] = await Promise.all([
         supabase.from('appointments').select('id,starts_at,status,consultation_mode').eq('patient_id', params.id).order('starts_at', { ascending: false }).limit(50),
         supabase.from('soap_notes').select('id,session_date,status,updated_at').eq('patient_id', params.id).order('session_date', { ascending: false }).limit(50),
         supabase.from('patient_evaluations').select('id,instrument,custom_instrument_name,evaluation_date,severity,created_at').eq('patient_id', Number(params.id)).order('evaluation_date', { ascending: false }).limit(50),
         supabase.from('patient_files').select('id,display_name,document_type,created_at').eq('patient_id', params.id).order('created_at', { ascending: false }).limit(50),
+        supabase.from('therapy_goals').select('id,title,status,progress,created_at,updated_at').eq('patient_id', params.id).order('updated_at', { ascending: false }).limit(50),
       ]);
 
       const appointmentRows = (appointmentsResult.data || []) as Appointment[];
       const soapRows = soapResult.data || [];
       const evaluationRows = evaluationsResult.data || [];
       const fileRows = filesResult.data || [];
+      const goalRows = goalsResult.data || [];
 
       setAppointments(appointmentRows);
       setStats({
@@ -113,6 +117,7 @@ export default function PatientRecordPage() {
       for (const item of soapRows) items.push({ id: `soap-${item.id}`, kind: 'soap', title: 'Nota SOAP', detail: item.status || 'Registrada', occurredAt: item.updated_at || `${item.session_date}T12:00:00` });
       for (const item of evaluationRows) items.push({ id: `evaluation-${item.id}`, kind: 'evaluation', title: item.instrument === 'Evaluación libre' ? item.custom_instrument_name || 'Evaluación libre' : item.instrument, detail: item.severity || 'Evaluación registrada', occurredAt: item.created_at || `${item.evaluation_date}T12:00:00` });
       for (const item of fileRows) items.push({ id: `file-${item.id}`, kind: 'file', title: item.display_name || 'Archivo clínico', detail: item.document_type || 'Documento', occurredAt: item.created_at });
+      for (const item of goalRows) items.push({ id: `goal-${item.id}`, kind: 'goal', title: `Objetivo: ${item.title}`, detail: `${item.status || 'Activo'} · ${item.progress || 0}% de progreso`, occurredAt: item.updated_at || item.created_at });
       setTimeline(items.sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()));
 
       if (current.psychologist_id) {
@@ -142,6 +147,7 @@ export default function PatientRecordPage() {
     { key: 'notes', label: 'Notas SOAP', icon: <ClipboardList size={17} /> },
     { key: 'evaluations', label: 'Evaluaciones', icon: <HeartPulse size={17} /> },
     { key: 'files', label: 'Archivos', icon: <FolderOpen size={17} /> },
+    { key: 'goals', label: 'Objetivos', icon: <Target size={17} /> },
     { key: 'history', label: 'Historial', icon: <History size={17} /> },
   ];
 
@@ -159,7 +165,7 @@ export default function PatientRecordPage() {
       <button className="metric-card" type="button" onClick={() => setTab('appointments')}><span className="metric-icon"><CalendarDays size={21}/></span><span><small>Sesiones registradas</small><strong>{stats.appointments}</strong></span></button>
       <button className="metric-card" type="button" onClick={() => setTab('notes')}><span className="metric-icon"><ClipboardList size={21}/></span><span><small>Notas SOAP</small><strong>{stats.soap}</strong></span></button>
       <button className="metric-card" type="button" onClick={() => setTab('evaluations')}><span className="metric-icon"><HeartPulse size={21}/></span><span><small>Evaluaciones</small><strong>{stats.evaluations}</strong></span></button>
-      <button className="metric-card" type="button" onClick={() => setTab('files')}><span className="metric-icon"><FolderOpen size={21}/></span><span><small>Archivos clínicos</small><strong>{stats.files}</strong></span></button>
+      <button className="metric-card" type="button" onClick={() => setTab('goals')}><span className="metric-icon"><Target size={21}/></span><span><small>Objetivos terapéuticos</small><strong>Abrir</strong></span></button>
     </section>
 
     <nav className="record-tabs" aria-label="Secciones del expediente">{tabs.map(item => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => setTab(item.key)}>{item.icon}{item.label}</button>)}</nav>
@@ -169,6 +175,7 @@ export default function PatientRecordPage() {
     {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'evaluations' ? <PatientEvaluationsPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
     {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
-    {tab === 'history' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Actividad del expediente</span><h2>Historial clínico</h2><p className="muted">Citas, notas, evaluaciones y documentos en orden cronológico.</p></div><span className="count-badge">{timeline.length}</span></div>{timeline.length ? <div className="record-timeline">{timeline.map(item => <article className="record-timeline-item" key={item.id}><div className={`record-timeline-icon kind-${item.kind}`}>{timelineIcon(item.kind)}</div><div><strong>{item.title}</strong><p>{item.detail}</p><time>{new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.occurredAt))}</time></div></article>)}</div> : <div className="empty-state">Aún no hay actividad registrada.</div>}</section> : null}
+    {tab === 'goals' ? <TherapyGoalsPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
+    {tab === 'history' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Actividad del expediente</span><h2>Historial clínico</h2><p className="muted">Citas, notas, evaluaciones, documentos y objetivos en orden cronológico.</p></div><span className="count-badge">{timeline.length}</span></div>{timeline.length ? <div className="record-timeline">{timeline.map(item => <article className="record-timeline-item" key={item.id}><div className={`record-timeline-icon kind-${item.kind}`}>{timelineIcon(item.kind)}</div><div><strong>{item.title}</strong><p>{item.detail}</p><time>{new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.occurredAt))}</time></div></article>)}</div> : <div className="empty-state">Aún no hay actividad registrada.</div>}</section> : null}
   </>;
 }

@@ -1,13 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-type SupabaseRpcResponse = PromiseLike<{
-  data: unknown;
-  error: { message: string } | null;
-}>;
-
-type BrowserSupabaseClient = Omit<ReturnType<typeof createClient>, 'rpc'> & {
-  rpc(functionName: string, args?: Record<string, unknown>): SupabaseRpcResponse;
-};
+// El proyecto todavía no cuenta con tipos generados completos de Supabase.
+// Hasta que se genere `database.types.ts`, el cliente se mantiene sin tipado
+// estricto para evitar que `from().insert/update()` infiera `never` y que los
+// RPC personalizados rechacen sus argumentos durante el build.
+type BrowserSupabaseClient = ReturnType<typeof createClient<any>>;
 
 let client: BrowserSupabaseClient | null = null;
 
@@ -21,7 +18,7 @@ export function getSupabaseBrowser(): BrowserSupabaseClient {
     throw new Error('Faltan las variables públicas de Supabase.');
   }
 
-  client = createClient(url, key, {
+  client = createClient<any>(url, key, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -29,7 +26,7 @@ export function getSupabaseBrowser(): BrowserSupabaseClient {
       storage: window.localStorage,
       storageKey: 'psycore-auth-session',
     },
-  }) as BrowserSupabaseClient;
+  });
 
   return client;
 }

@@ -56,6 +56,7 @@ export type EvaluationSnapshot = {
 };
 
 export type ClinicalIntelligenceResult = {
+  clinicalScore: number;
   riskLevel: ClinicalRiskLevel;
   clinicalStatus: ClinicalStatus;
   adherence: number | null;
@@ -63,6 +64,8 @@ export type ClinicalIntelligenceResult = {
   alerts: string[];
   strengths: string[];
   recommendations: string[];
+  riskFactors: string[];
+  positiveFactors: string[];
   summary: string;
   metrics: {
     sessions: number;

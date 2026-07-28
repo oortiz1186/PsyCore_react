@@ -1,8 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-let client: ReturnType<typeof createClient> | null = null;
+type SupabaseRpcResponse = PromiseLike<{
+  data: unknown;
+  error: { message: string } | null;
+}>;
 
-export function getSupabaseBrowser() {
+type BrowserSupabaseClient = Omit<ReturnType<typeof createClient>, 'rpc'> & {
+  rpc(functionName: string, args?: Record<string, unknown>): SupabaseRpcResponse;
+};
+
+let client: BrowserSupabaseClient | null = null;
+
+export function getSupabaseBrowser(): BrowserSupabaseClient {
   if (client) return client;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -20,7 +29,7 @@ export function getSupabaseBrowser() {
       storage: window.localStorage,
       storageKey: 'psycore-auth-session',
     },
-  });
+  }) as BrowserSupabaseClient;
 
   return client;
 }

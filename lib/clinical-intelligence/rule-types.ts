@@ -23,27 +23,37 @@ export type ClinicalRuleResult = {
   positiveFactors?: string[];
 };
 
+export type MergedClinicalRuleResult = {
+  riskPoints: number;
+  scoreAdjustment: number;
+  alerts: string[];
+  strengths: string[];
+  recommendations: string[];
+  riskFactors: string[];
+  positiveFactors: string[];
+};
+
 export type ClinicalRule = (context: ClinicalRuleContext) => ClinicalRuleResult;
 
-export function mergeRuleResults(results: ClinicalRuleResult[]) {
-  return results.reduce(
+export function mergeRuleResults(results: ClinicalRuleResult[]): MergedClinicalRuleResult {
+  return results.reduce<MergedClinicalRuleResult>(
     (accumulator, result) => ({
-      riskPoints: accumulator.riskPoints + (result.riskPoints || 0),
-      scoreAdjustment: accumulator.scoreAdjustment + (result.scoreAdjustment || 0),
-      alerts: [...accumulator.alerts, ...(result.alerts || [])],
-      strengths: [...accumulator.strengths, ...(result.strengths || [])],
-      recommendations: [...accumulator.recommendations, ...(result.recommendations || [])],
-      riskFactors: [...accumulator.riskFactors, ...(result.riskFactors || [])],
-      positiveFactors: [...accumulator.positiveFactors, ...(result.positiveFactors || [])],
+      riskPoints: accumulator.riskPoints + (result.riskPoints ?? 0),
+      scoreAdjustment: accumulator.scoreAdjustment + (result.scoreAdjustment ?? 0),
+      alerts: [...accumulator.alerts, ...(result.alerts ?? [])],
+      strengths: [...accumulator.strengths, ...(result.strengths ?? [])],
+      recommendations: [...accumulator.recommendations, ...(result.recommendations ?? [])],
+      riskFactors: [...accumulator.riskFactors, ...(result.riskFactors ?? [])],
+      positiveFactors: [...accumulator.positiveFactors, ...(result.positiveFactors ?? [])],
     }),
     {
       riskPoints: 0,
       scoreAdjustment: 0,
-      alerts: [] as string[],
-      strengths: [] as string[],
-      recommendations: [] as string[],
-      riskFactors: [] as string[],
-      positiveFactors: [] as string[],
+      alerts: [],
+      strengths: [],
+      recommendations: [],
+      riskFactors: [],
+      positiveFactors: [],
     },
   );
 }

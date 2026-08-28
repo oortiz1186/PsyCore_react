@@ -18,6 +18,14 @@ function messageOf(error: unknown, fallback: string) {
   return fallback;
 }
 
+function roleNameOf(value: unknown): string | undefined {
+  const role = Array.isArray(value) ? value[0] : value;
+  if (!role || typeof role !== 'object') return undefined;
+
+  const name = (role as { name?: unknown }).name;
+  return typeof name === 'string' ? name : undefined;
+}
+
 async function requireAdmin(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!token) return null;
@@ -32,9 +40,7 @@ async function requireAdmin(req: NextRequest) {
     .eq('id', data.user.id)
     .maybeSingle();
 
-  const role = Array.isArray(profile?.roles)
-    ? profile.roles[0]?.name
-    : (profile?.roles as { name?: string } | null)?.name;
+  const role = roleNameOf(profile?.roles);
 
   return role === 'Administrador' ? data.user : null;
 }

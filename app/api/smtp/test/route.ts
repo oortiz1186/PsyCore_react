@@ -3,6 +3,12 @@ import nodemailer from 'nodemailer';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { getSmtpSettings } from '@/lib/smtp-settings';
 
+function roleNameOf(value: unknown): string | undefined {
+  const role = Array.isArray(value) ? value[0] : value;
+  if (!role || typeof role !== 'object' || !('name' in role)) return undefined;
+  return typeof role.name === 'string' ? role.name : undefined;
+}
+
 async function adminOnly(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!token) return false;
@@ -17,9 +23,7 @@ async function adminOnly(req: NextRequest) {
     .eq('id', data.user.id)
     .maybeSingle();
 
-  const role = Array.isArray(profile?.roles)
-    ? profile.roles[0]?.name
-    : (profile?.roles as { name?: string } | null)?.name;
+  const role = roleNameOf(profile?.roles);
 
   return role === 'Administrador';
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import type { User } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { getSmtpSettings } from '@/lib/smtp-settings';
 
@@ -19,6 +20,12 @@ function errorMessage(error: unknown, fallback = 'Ocurrió un error inesperado.'
   return fallback;
 }
 
+function roleNameOf(value: unknown): string | undefined {
+  const role = Array.isArray(value) ? value[0] : value;
+  if (!role || typeof role !== 'object' || !('name' in role)) return undefined;
+  return typeof role.name === 'string' ? role.name : undefined;
+}
+
 async function authorize(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '');
   if (!token) return null;
@@ -30,9 +37,7 @@ async function authorize(req: NextRequest) {
     .select('roles(name)')
     .eq('id', data.user.id)
     .maybeSingle();
-  const role = Array.isArray(profile?.roles)
-    ? profile.roles[0]?.name
-    : (profile?.roles as { name?: string } | null)?.name;
+  const role = roleNameOf(profile?.roles);
   return role === 'Administrador' ? data.user : null;
 }
 
@@ -40,9 +45,9 @@ function tempPassword() {
   return `Psy-${crypto.randomBytes(8).toString('base64url')}!9`;
 }
 
-async function listAllAuthUsers() {
+async function listAllAuthUsers(): Promise<User[]> {
   const admin = getSupabaseAdmin();
-  const users = [] as Awaited<ReturnType<typeof admin.auth.admin.listUsers>>['data']['users'];
+  const users: User[] = [];
   let page = 1;
   while (page <= 20) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });
@@ -141,9 +146,7 @@ export async function POST(req: NextRequest) {
         .select('id,roles(name)')
         .eq('id', requestedPsychologistId)
         .maybeSingle();
-      const psychologistRole = Array.isArray(psychologist?.roles)
-        ? psychologist.roles[0]?.name
-        : (psychologist?.roles as { name?: string } | null)?.name;
+      const psychologistRole = roleNameOf(psychologist?.roles);
 
       if (psychologistError || !psychologist || psychologistRole !== 'Psicóloga') {
         return NextResponse.json(

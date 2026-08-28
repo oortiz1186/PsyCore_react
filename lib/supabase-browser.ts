@@ -1,8 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-let client: ReturnType<typeof createClient> | null = null;
+// El proyecto todavía no cuenta con tipos generados completos de Supabase.
+// Hasta que se genere `database.types.ts`, el cliente se mantiene sin tipado
+// estricto para evitar que `from().insert/update()` infiera `never` y que los
+// RPC personalizados rechacen sus argumentos durante el build.
+type BrowserSupabaseClient = ReturnType<typeof createClient<any>>;
 
-export function getSupabaseBrowser() {
+let client: BrowserSupabaseClient | null = null;
+
+export function getSupabaseBrowser(): BrowserSupabaseClient {
   if (client) return client;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,7 +18,7 @@ export function getSupabaseBrowser() {
     throw new Error('Faltan las variables públicas de Supabase.');
   }
 
-  client = createClient(url, key, {
+  client = createClient<any>(url, key, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,

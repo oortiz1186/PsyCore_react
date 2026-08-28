@@ -3,11 +3,13 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Clock3, FileText, FolderOpen, HeartPulse, History, ListTodo, Mail, Minus, Phone, Printer, Search, Target, TrendingDown, TrendingUp, UserRound } from 'lucide-react';
+import { CalendarDays, ClipboardList, FileText, FolderOpen, HeartPulse, History, Mail, Minus, Phone, Printer, Search, Target, TrendingDown, TrendingUp, UserRound } from 'lucide-react';
+import { ClinicalIntelligenceCard } from '@/components/patients/clinical-intelligence-card';
 import { PatientEvaluationsPanel } from '@/components/patients/patient-evaluations-panel';
 import { PatientFilesPanel } from '@/components/patients/patient-files-panel';
 import { SoapNotesPanel } from '@/components/patients/soap-notes-panel';
 import { TherapyGoalsPanel } from '@/components/patients/therapy-goals-panel';
+import { analyzePatient } from '@/lib/clinical-intelligence';
 import { getSupabaseBrowser } from '@/lib/supabase-browser';
 
 type Patient = {
@@ -31,10 +33,7 @@ type TimelineItem = { id: string; kind: TimelineKind; title: string; detail: str
 type EvaluationPoint = { id: string; instrument: string; evaluation_date: string; total_score?: number | null; severity?: string | null };
 type SoapSummary = { id: string; session_date: string; status?: string | null; assessment?: string | null; plan?: string | null; updated_at?: string | null };
 type GoalSummary = { id: string; title: string; status?: string | null; progress?: number | null; created_at?: string | null; updated_at?: string | null };
-
 type RecordStats = { appointments: number; soap: number; evaluations: number; files: number };
-
-type ClinicalLevel = 'stable' | 'followup' | 'attention';
 
 function patientName(patient: Patient) {
   return `${patient.first_name || ''} ${patient.last_name || ''}`.trim() || 'Paciente';
@@ -48,11 +47,6 @@ function age(date?: string | null) {
   const month = now.getMonth() - birth.getMonth();
   if (month < 0 || (month === 0 && now.getDate() < birth.getDate())) value--;
   return value;
-}
-
-function daysSince(value?: string | null) {
-  if (!value) return null;
-  return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000));
 }
 
 function timelineIcon(kind: TimelineKind) {
@@ -81,28 +75,17 @@ function EvaluationTrend({ title, points, maximum }: { title: string; points: Ev
   const trend = trendFor(points);
 
   return <article className="card" style={{ minHeight: 250 }}>
-    <div className="section-heading">
-      <div><span className="eyebrow">Evolución clínica</span><h2>{title}</h2></div>
-      <span className="count-badge">{latest?.total_score ?? '—'}</span>
-    </div>
+    <div className="section-heading"><div><span className="eyebrow">Evolución clínica</span><h2>{title}</h2></div><span className="count-badge">{latest?.total_score ?? '—'}</span></div>
     {ordered.length ? <>
       <div style={{ display: 'flex', alignItems: 'end', gap: 10, minHeight: 105, padding: '8px 2px 0' }}>
         {ordered.slice(-8).map(point => {
           const score = point.total_score ?? 0;
           const height = Math.max(8, Math.round((score / maximum) * 100));
-          return <div key={point.id} title={`${point.evaluation_date}: ${score}`} style={{ flex: 1, minWidth: 24, textAlign: 'center' }}>
-            <small style={{ display: 'block', marginBottom: 5, color: 'var(--muted)' }}>{score}</small>
-            <div style={{ height, borderRadius: '9px 9px 4px 4px', background: 'linear-gradient(180deg,var(--lav),var(--sage))' }}/>
-          </div>;
+          return <div key={point.id} title={`${point.evaluation_date}: ${score}`} style={{ flex: 1, minWidth: 24, textAlign: 'center' }}><small style={{ display: 'block', marginBottom: 5, color: 'var(--muted)' }}>{score}</small><div style={{ height, borderRadius: '9px 9px 4px 4px', background: 'linear-gradient(180deg,var(--lav),var(--sage))' }}/></div>;
         })}
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, color: 'var(--muted)', fontSize: 12 }}>
-        <span>{ordered[0].evaluation_date}</span><span>{latest?.severity || 'Sin clasificación'}</span><span>{latest?.evaluation_date}</span>
-      </div>
-      <div className="notice-card" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 9 }}>
-        {trend.direction === 'down' ? <TrendingDown size={18}/> : trend.direction === 'up' ? <TrendingUp size={18}/> : <Minus size={18}/>}
-        <strong>{trend.label}</strong>{trend.difference !== 0 ? <span>({trend.difference > 0 ? '+' : ''}{trend.difference} puntos)</span> : null}
-      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, color: 'var(--muted)', fontSize: 12 }}><span>{ordered[0].evaluation_date}</span><span>{latest?.severity || 'Sin clasificación'}</span><span>{latest?.evaluation_date}</span></div>
+      <div className="notice-card" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 9 }}>{trend.direction === 'down' ? <TrendingDown size={18}/> : trend.direction === 'up' ? <TrendingUp size={18}/> : <Minus size={18}/>}<strong>{trend.label}</strong>{trend.difference !== 0 ? <span>({trend.difference > 0 ? '+' : ''}{trend.difference} puntos)</span> : null}</div>
     </> : <div className="empty-state compact-empty">Todavía no hay aplicaciones de {title}.</div>}
   </article>;
 }
@@ -136,11 +119,7 @@ export default function PatientRecordPage() {
       setLoading(true);
       setError('');
       const supabase = getSupabaseBrowser();
-      const { data, error: patientError } = await supabase
-        .from('patients')
-        .select('id,first_name,last_name,preferred_name,email,phone,birth_date,status,clinical_alert,psychologist_id,created_at')
-        .eq('id', patientId)
-        .maybeSingle();
+      const { data, error: patientError } = await supabase.from('patients').select('id,first_name,last_name,preferred_name,email,phone,birth_date,status,clinical_alert,psychologist_id,created_at').eq('id', patientId).maybeSingle();
 
       if (patientError || !data) {
         setError(patientError?.message || 'No se encontró el paciente.');
@@ -194,24 +173,21 @@ export default function PatientRecordPage() {
     if (nextTab === 'history' || nextTab === 'overview') setRefreshVersion(current => current + 1);
   }
 
-  const nextAppointment = useMemo(() => appointments
-    .filter(item => item.starts_at && new Date(item.starts_at) >= new Date())
-    .sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime())[0], [appointments]);
-
-  const pastAppointments = useMemo(() => appointments
-    .filter(item => item.starts_at && new Date(item.starts_at) < new Date())
-    .sort((a, b) => new Date(b.starts_at || 0).getTime() - new Date(a.starts_at || 0).getTime()), [appointments]);
-
+  const nextAppointment = useMemo(() => appointments.filter(item => item.starts_at && new Date(item.starts_at) >= new Date()).sort((a, b) => new Date(a.starts_at || 0).getTime() - new Date(b.starts_at || 0).getTime())[0], [appointments]);
+  const pastAppointments = useMemo(() => appointments.filter(item => item.starts_at && new Date(item.starts_at) < new Date()).sort((a, b) => new Date(b.starts_at || 0).getTime() - new Date(a.starts_at || 0).getTime()), [appointments]);
   const lastAppointment = pastAppointments[0];
-
   const filteredTimeline = useMemo(() => {
     const query = historySearch.trim().toLocaleLowerCase('es');
-    return timeline.filter(item => {
-      const matchesKind = historyKind === 'all' || item.kind === historyKind;
-      const matchesSearch = !query || `${item.title} ${item.detail}`.toLocaleLowerCase('es').includes(query);
-      return matchesKind && matchesSearch;
-    });
+    return timeline.filter(item => (historyKind === 'all' || item.kind === historyKind) && (!query || `${item.title} ${item.detail}`.toLocaleLowerCase('es').includes(query)));
   }, [historyKind, historySearch, timeline]);
+
+  const intelligence = useMemo(() => patient ? analyzePatient({
+    patient: { id: patient.id, clinicalAlert: patient.clinical_alert, createdAt: patient.created_at },
+    appointments: appointments.map(item => ({ id: item.id, startsAt: item.starts_at, status: item.status })),
+    evaluations: evaluationPoints.map(item => ({ id: item.id, instrument: item.instrument, evaluationDate: item.evaluation_date, totalScore: item.total_score, severity: item.severity })),
+    goals: goals.map(item => ({ id: item.id, title: item.title, status: item.status, progress: item.progress, updatedAt: item.updated_at })),
+    soapNotes: soapNotes.map(item => ({ id: item.id, sessionDate: item.session_date, analysis: item.assessment, plan: item.plan })),
+  }) : null, [appointments, evaluationPoints, goals, patient, soapNotes]);
 
   if (loading) return <div className="card empty-state">Cargando expediente...</div>;
   if (error || !patient) return <div className="card empty-state"><h2>No fue posible abrir el expediente</h2><p className="error">{error}</p><Link className="btn btn-secondary" href="/patients">Volver a pacientes</Link></div>;
@@ -219,97 +195,38 @@ export default function PatientRecordPage() {
   const patientAge = age(patient.birth_date);
   const phqPoints = evaluationPoints.filter(point => point.instrument === 'PHQ-9');
   const gadPoints = evaluationPoints.filter(point => point.instrument === 'GAD-7');
-  const latestPhq = [...phqPoints].sort((a, b) => b.evaluation_date.localeCompare(a.evaluation_date))[0];
-  const latestGad = [...gadPoints].sort((a, b) => b.evaluation_date.localeCompare(a.evaluation_date))[0];
   const latestSoap = soapNotes[0];
-  const daysWithoutSession = daysSince(lastAppointment?.starts_at);
-  const activeGoals = goals.filter(goal => goal.status === 'active' || goal.status === 'pending');
-  const completedGoals = goals.filter(goal => goal.status === 'completed');
-  const averageGoalProgress = goals.length ? Math.round(goals.reduce((sum, goal) => sum + Number(goal.progress || 0), 0) / goals.length) : 0;
-  const normalizedStatuses = pastAppointments.map(item => (item.status || '').toLocaleLowerCase('es'));
-  const attended = normalizedStatuses.filter(status => status.includes('complet') || status.includes('atendid') || status.includes('realiz')).length;
-  const missed = normalizedStatuses.filter(status => status.includes('cancel') || status.includes('inasist') || status.includes('no asist')).length;
-  const attendanceBase = attended + missed;
-  const attendanceRate = attendanceBase ? Math.round((attended / attendanceBase) * 100) : null;
-
-  let clinicalLevel: ClinicalLevel = 'stable';
-  const clinicalReasons: string[] = [];
-  if (patient.clinical_alert) { clinicalLevel = 'attention'; clinicalReasons.push('Existe una alerta clínica activa.'); }
-  if ((latestPhq?.total_score ?? 0) >= 15 || (latestGad?.total_score ?? 0) >= 15) { clinicalLevel = 'attention'; clinicalReasons.push('La evaluación más reciente presenta síntomas de intensidad alta.'); }
-  else if ((latestPhq?.total_score ?? 0) >= 10 || (latestGad?.total_score ?? 0) >= 10) { if (clinicalLevel !== 'attention') clinicalLevel = 'followup'; clinicalReasons.push('La evaluación más reciente sugiere seguimiento cercano.'); }
-  if (daysWithoutSession !== null && daysWithoutSession >= 30) { if (clinicalLevel !== 'attention') clinicalLevel = 'followup'; clinicalReasons.push(`Han pasado ${daysWithoutSession} días desde la última sesión.`); }
-  if (!clinicalReasons.length) clinicalReasons.push('No se detectan indicadores automáticos de atención prioritaria con los datos registrados.');
-
-  const clinicalConfig = clinicalLevel === 'attention'
-    ? { label: 'Atención prioritaria', icon: <AlertTriangle size={23}/>, background: '#fff1f3', color: '#9c4053' }
-    : clinicalLevel === 'followup'
-      ? { label: 'Requiere seguimiento', icon: <Clock3 size={23}/>, background: '#fff8e7', color: '#8a681f' }
-      : { label: 'Seguimiento estable', icon: <CheckCircle2 size={23}/>, background: 'var(--sage-soft)', color: '#356a49' };
-
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-    { key: 'overview', label: 'Resumen', icon: <UserRound size={17} /> },
-    { key: 'appointments', label: 'Agenda', icon: <CalendarDays size={17} /> },
-    { key: 'notes', label: 'Notas SOAP', icon: <ClipboardList size={17} /> },
-    { key: 'evaluations', label: 'Evaluaciones', icon: <HeartPulse size={17} /> },
-    { key: 'files', label: 'Archivos', icon: <FolderOpen size={17} /> },
-    { key: 'goals', label: 'Objetivos', icon: <Target size={17} /> },
-    { key: 'history', label: 'Historial', icon: <History size={17} /> },
+    { key: 'overview', label: 'Resumen', icon: <UserRound size={17}/> },
+    { key: 'appointments', label: 'Agenda', icon: <CalendarDays size={17}/> },
+    { key: 'notes', label: 'Notas SOAP', icon: <ClipboardList size={17}/> },
+    { key: 'evaluations', label: 'Evaluaciones', icon: <HeartPulse size={17}/> },
+    { key: 'files', label: 'Archivos', icon: <FolderOpen size={17}/> },
+    { key: 'goals', label: 'Objetivos', icon: <Target size={17}/> },
+    { key: 'history', label: 'Historial', icon: <History size={17}/> },
   ];
 
   return <>
     <div className="record-breadcrumb"><Link href="/patients">Pacientes</Link><span>/</span><strong>{patientName(patient)}</strong></div>
-    <section className="patient-record-hero">
-      <div className="patient-record-avatar">{patientName(patient).split(' ').slice(0, 2).map(value => value[0]).join('').toUpperCase()}</div>
-      <div className="patient-record-copy"><span className="eyebrow">Expediente clínico</span><h1>{patient.preferred_name || patientName(patient)}</h1>{patient.preferred_name ? <p className="muted">{patientName(patient)}</p> : null}<div className="patient-record-meta"><span>{patientAge === null ? 'Edad no registrada' : `${patientAge} años`}</span><span>{psychologistName || 'Psicóloga no identificada'}</span><span className="chip">{patient.status || 'Activo'}</span></div></div>
-      <div className="patient-record-actions"><button className="btn btn-secondary" type="button" onClick={() => window.print()}><Printer size={16}/> Imprimir / PDF</button><Link className="btn btn-secondary" href={`/appointments?patient=${patient.id}`}>Agendar cita</Link><button className="btn btn-primary" onClick={() => openTab('notes')}>Nueva nota SOAP</button></div>
-    </section>
+    <section className="patient-record-hero"><div className="patient-record-avatar">{patientName(patient).split(' ').slice(0, 2).map(value => value[0]).join('').toUpperCase()}</div><div className="patient-record-copy"><span className="eyebrow">Expediente clínico</span><h1>{patient.preferred_name || patientName(patient)}</h1>{patient.preferred_name ? <p className="muted">{patientName(patient)}</p> : null}<div className="patient-record-meta"><span>{patientAge === null ? 'Edad no registrada' : `${patientAge} años`}</span><span>{psychologistName || 'Psicóloga no identificada'}</span><span className="chip">{patient.status || 'Activo'}</span></div></div><div className="patient-record-actions"><button className="btn btn-secondary" type="button" onClick={() => window.print()}><Printer size={16}/> Imprimir / PDF</button><Link className="btn btn-secondary" href={`/appointments?patient=${patient.id}`}>Agendar cita</Link><button className="btn btn-primary" onClick={() => openTab('notes')}>Nueva nota SOAP</button></div></section>
 
     {patient.clinical_alert ? <div className="clinical-alert record-alert"><strong>Alerta clínica</strong><span>{patient.clinical_alert}</span></div> : null}
 
-    <section className="dashboard-stats" aria-label="Resumen del expediente">
-      <button className="metric-card" type="button" onClick={() => openTab('appointments')}><span className="metric-icon"><CalendarDays size={21}/></span><span><small>Sesiones registradas</small><strong>{stats.appointments}</strong></span></button>
-      <button className="metric-card" type="button" onClick={() => openTab('notes')}><span className="metric-icon"><ClipboardList size={21}/></span><span><small>Notas SOAP</small><strong>{stats.soap}</strong></span></button>
-      <button className="metric-card" type="button" onClick={() => openTab('evaluations')}><span className="metric-icon"><HeartPulse size={21}/></span><span><small>Evaluaciones</small><strong>{stats.evaluations}</strong></span></button>
-      <button className="metric-card" type="button" onClick={() => openTab('files')}><span className="metric-icon"><FolderOpen size={21}/></span><span><small>Archivos clínicos</small><strong>{stats.files}</strong></span></button>
-    </section>
+    <section className="dashboard-stats" aria-label="Resumen del expediente"><button className="metric-card" type="button" onClick={() => openTab('appointments')}><span className="metric-icon"><CalendarDays size={21}/></span><span><small>Sesiones registradas</small><strong>{stats.appointments}</strong></span></button><button className="metric-card" type="button" onClick={() => openTab('notes')}><span className="metric-icon"><ClipboardList size={21}/></span><span><small>Notas SOAP</small><strong>{stats.soap}</strong></span></button><button className="metric-card" type="button" onClick={() => openTab('evaluations')}><span className="metric-icon"><HeartPulse size={21}/></span><span><small>Evaluaciones</small><strong>{stats.evaluations}</strong></span></button><button className="metric-card" type="button" onClick={() => openTab('files')}><span className="metric-icon"><FolderOpen size={21}/></span><span><small>Archivos clínicos</small><strong>{stats.files}</strong></span></button></section>
 
     <nav className="record-tabs" aria-label="Secciones del expediente">{tabs.map(item => <button key={item.key} className={tab === item.key ? 'active' : ''} onClick={() => openTab(item.key)}>{item.icon}{item.label}</button>)}</nav>
 
     {tab === 'overview' ? <>
-      <section className="card" style={{ marginBottom: 20, background: `linear-gradient(135deg,${clinicalConfig.background},#fff)` }}>
-        <div className="section-heading">
-          <div><span className="eyebrow">PsyCore Intelligence</span><h2>Resumen clínico automático</h2><p className="muted">Apoyo para preparar la consulta. No sustituye la valoración profesional.</p></div>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderRadius: 999, background: clinicalConfig.background, color: clinicalConfig.color, fontWeight: 800 }}>{clinicalConfig.icon}{clinicalConfig.label}</span>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 12 }}>
-          {clinicalReasons.map(reason => <div className="notice-card" key={reason}>{reason}</div>)}
-        </div>
-      </section>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(210px,1fr))', gap: 16, marginBottom: 20 }}>
-        <article className="card"><Activity size={21}/><small className="muted" style={{ display: 'block', marginTop: 12 }}>PHQ-9 reciente</small><strong style={{ display: 'block', fontSize: 28, marginTop: 4 }}>{latestPhq?.total_score ?? '—'}</strong><span className="soft-chip">{latestPhq?.severity || 'Sin evaluación'}</span></article>
-        <article className="card"><HeartPulse size={21}/><small className="muted" style={{ display: 'block', marginTop: 12 }}>GAD-7 reciente</small><strong style={{ display: 'block', fontSize: 28, marginTop: 4 }}>{latestGad?.total_score ?? '—'}</strong><span className="soft-chip">{latestGad?.severity || 'Sin evaluación'}</span></article>
-        <article className="card"><Clock3 size={21}/><small className="muted" style={{ display: 'block', marginTop: 12 }}>Última sesión</small><strong style={{ display: 'block', fontSize: 28, marginTop: 4 }}>{daysWithoutSession === null ? '—' : `${daysWithoutSession} d`}</strong><span className="muted">{lastAppointment?.starts_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium'}).format(new Date(lastAppointment.starts_at)) : 'Sin sesión registrada'}</span></article>
-        <article className="card"><CheckCircle2 size={21}/><small className="muted" style={{ display: 'block', marginTop: 12 }}>Asistencia estimada</small><strong style={{ display: 'block', fontSize: 28, marginTop: 4 }}>{attendanceRate === null ? '—' : `${attendanceRate}%`}</strong><span className="muted">{attendanceBase ? `${attended} asistidas · ${missed} canceladas/inasistencias` : 'Sin estados concluyentes'}</span></article>
-      </div>
-
-      <div className="record-grid">
-        <section className="card record-main-card"><div className="section-heading"><div><span className="eyebrow">Preparación de consulta</span><h2>Última nota clínica</h2></div><button className="btn btn-secondary btn-small" onClick={() => openTab('notes')}>Abrir notas</button></div>{latestSoap ? <><div className="evaluation-copy"><small>Análisis</small><p>{latestSoap.assessment || 'Sin análisis registrado.'}</p></div><div className="evaluation-copy"><small>Plan</small><p>{latestSoap.plan || 'Sin plan registrado.'}</p></div><small className="muted">Sesión del {new Intl.DateTimeFormat('es-MX',{dateStyle:'long'}).format(new Date(`${latestSoap.session_date}T12:00:00`))}</small></> : <div className="empty-state compact-empty">No hay notas SOAP para resumir.</div>}</section>
-        <aside className="card record-side-card"><span className="eyebrow">Plan terapéutico</span><h2>Objetivos</h2><div style={{ display: 'grid', gap: 12, margin: '14px 0' }}><div><small className="muted">Activos o pendientes</small><strong style={{ display: 'block', fontSize: 26 }}>{activeGoals.length}</strong></div><div><small className="muted">Completados</small><strong style={{ display: 'block', fontSize: 26 }}>{completedGoals.length}</strong></div><div><small className="muted">Progreso promedio</small><strong style={{ display: 'block', fontSize: 26 }}>{averageGoalProgress}%</strong></div></div><button className="btn btn-primary" onClick={() => openTab('goals')}><ListTodo size={16}/> Revisar objetivos</button></aside>
-      </div>
-
+      {intelligence ? <ClinicalIntelligenceCard intelligence={intelligence}/> : null}
+      <div className="record-grid"><section className="card record-main-card"><div className="section-heading"><div><span className="eyebrow">Preparación de consulta</span><h2>Última nota clínica</h2></div><button className="btn btn-secondary btn-small" onClick={() => openTab('notes')}>Abrir notas</button></div>{latestSoap ? <><div className="evaluation-copy"><small>Análisis</small><p>{latestSoap.assessment || 'Sin análisis registrado.'}</p></div><div className="evaluation-copy"><small>Plan</small><p>{latestSoap.plan || 'Sin plan registrado.'}</p></div><small className="muted">Sesión del {new Intl.DateTimeFormat('es-MX',{dateStyle:'long'}).format(new Date(`${latestSoap.session_date}T12:00:00`))}</small></> : <div className="empty-state compact-empty">No hay notas SOAP para resumir.</div>}</section><aside className="card record-side-card"><span className="eyebrow">Plan terapéutico</span><h2>Objetivos</h2><div style={{ display: 'grid', gap: 12, margin: '14px 0' }}><div><small className="muted">Activos</small><strong style={{ display: 'block', fontSize: 26 }}>{intelligence?.metrics.activeGoals ?? 0}</strong></div><div><small className="muted">Completados</small><strong style={{ display: 'block', fontSize: 26 }}>{intelligence?.metrics.completedGoals ?? 0}</strong></div><div><small className="muted">Progreso promedio</small><strong style={{ display: 'block', fontSize: 26 }}>{intelligence?.metrics.averageGoalProgress ?? 0}%</strong></div></div><button className="btn btn-primary" onClick={() => openTab('goals')}>Revisar objetivos</button></aside></div>
       <div className="record-grid" style={{ marginTop: 20 }}><section className="card record-main-card"><div className="section-heading"><div><span className="eyebrow">Datos generales</span><h2>Información del paciente</h2></div></div><div className="detail-grid"><div><small>Nombre completo</small><strong>{patientName(patient)}</strong></div><div><small>Fecha de nacimiento</small><strong>{patient.birth_date || 'No registrada'}</strong></div><div><small>Edad</small><strong>{patientAge === null ? 'No registrada' : `${patientAge} años`}</strong></div><div><small>Estado clínico</small><strong>{patient.status || 'Activo'}</strong></div><div><small>Última sesión</small><strong>{lastAppointment?.starts_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium'}).format(new Date(lastAppointment.starts_at)) : 'Sin sesiones previas'}</strong></div><div><small>Fecha de alta</small><strong>{patient.created_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium'}).format(new Date(patient.created_at)) : 'No registrada'}</strong></div></div><div className="contact-panel"><div><Phone size={18}/><span><small>Teléfono</small><strong>{patient.phone || 'No registrado'}</strong></span></div><div><Mail size={18}/><span><small>Correo</small><strong>{patient.email || 'No registrado'}</strong></span></div></div></section><aside className="card record-side-card"><span className="eyebrow">Seguimiento</span><h2>Próxima cita</h2>{nextAppointment?.starts_at ? <><strong className="next-appointment-date">{new Intl.DateTimeFormat('es-MX',{dateStyle:'long',timeStyle:'short'}).format(new Date(nextAppointment.starts_at))}</strong><p className="muted">{nextAppointment.consultation_mode || 'Consulta'} · {nextAppointment.status || 'Programada'}</p></> : <div className="empty-state compact-empty">No hay una cita futura registrada.</div>}<Link className="btn btn-primary" href={`/appointments?patient=${patient.id}`}>Programar cita</Link></aside></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(290px,1fr))', gap: 18, marginTop: 20 }}><EvaluationTrend title="PHQ-9" points={phqPoints} maximum={27}/><EvaluationTrend title="GAD-7" points={gadPoints} maximum={21}/></div>
     </> : null}
     {tab === 'appointments' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Agenda</span><h2>Citas del paciente</h2></div><Link className="btn btn-primary" href={`/appointments?patient=${patient.id}`}>Nueva cita</Link></div>{appointments.length ? <div className="appointment-list">{appointments.map(item => <div className="appointment-item" key={item.id}><span className="appointment-dot"/><div><strong>{item.starts_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.starts_at)) : 'Fecha pendiente'}</strong><small>{item.consultation_mode || 'Consulta psicológica'}</small></div><span className="soft-chip">{item.status || 'Programada'}</span></div>)}</div> : <div className="empty-state">Aún no hay citas registradas.</div>}</section> : null}
-    {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
-    {tab === 'evaluations' ? <PatientEvaluationsPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments} /> : null}
-    {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id} /> : null}
-    {tab === 'goals' ? <TherapyGoalsPanel patientId={patientId} psychologistId={patient.psychologist_id} /> : null}
-    {tab === 'history' ? <section className="card record-section">
-      <div className="section-heading"><div><span className="eyebrow">Actividad del expediente</span><h2>Historial clínico</h2><p className="muted">Selecciona cualquier movimiento para abrir su sección.</p></div><span className="count-badge">{filteredTimeline.length}</span></div>
-      <div className="patient-toolbar" style={{ marginBottom: 20 }}><label className="search-box"><Search size={18}/><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Buscar en el historial..."/></label><select value={historyKind} onChange={event => setHistoryKind(event.target.value as 'all' | TimelineKind)}><option value="all">Todos los movimientos</option><option value="appointment">Citas</option><option value="soap">Notas SOAP</option><option value="evaluation">Evaluaciones</option><option value="file">Archivos</option><option value="goal">Objetivos</option><option value="patient">Expediente</option></select></div>
-      {filteredTimeline.length ? <div className="record-timeline">{filteredTimeline.map(item => <button type="button" className="record-timeline-item" key={item.id} onClick={() => openTab(item.target)} style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}><div className={`record-timeline-icon kind-${item.kind}`}>{timelineIcon(item.kind)}</div><div><strong>{item.title}</strong><p>{item.detail}</p><time>{new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.occurredAt))}</time></div></button>)}</div> : <div className="empty-state">No hay movimientos que coincidan con los filtros.</div>}
-    </section> : null}
+    {tab === 'notes' ? <SoapNotesPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments}/> : null}
+    {tab === 'evaluations' ? <PatientEvaluationsPanel patientId={patient.id} psychologistId={patient.psychologist_id} appointments={appointments}/> : null}
+    {tab === 'files' ? <PatientFilesPanel patientId={patient.id} psychologistId={patient.psychologist_id}/> : null}
+    {tab === 'goals' ? <TherapyGoalsPanel patientId={patientId} psychologistId={patient.psychologist_id}/> : null}
+    {tab === 'history' ? <section className="card record-section"><div className="section-heading"><div><span className="eyebrow">Actividad del expediente</span><h2>Historial clínico</h2><p className="muted">Selecciona cualquier movimiento para abrir su sección.</p></div><span className="count-badge">{filteredTimeline.length}</span></div><div className="patient-toolbar" style={{ marginBottom: 20 }}><label className="search-box"><Search size={18}/><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Buscar en el historial..."/></label><select value={historyKind} onChange={event => setHistoryKind(event.target.value as 'all' | TimelineKind)}><option value="all">Todos los movimientos</option><option value="appointment">Citas</option><option value="soap">Notas SOAP</option><option value="evaluation">Evaluaciones</option><option value="file">Archivos</option><option value="goal">Objetivos</option><option value="patient">Expediente</option></select></div>{filteredTimeline.length ? <div className="record-timeline">{filteredTimeline.map(item => <button type="button" className="record-timeline-item" key={item.id} onClick={() => openTab(item.target)} style={{ width: '100%', border: 0, background: 'transparent', color: 'inherit', textAlign: 'left', cursor: 'pointer' }}><div className={`record-timeline-icon kind-${item.kind}`}>{timelineIcon(item.kind)}</div><div><strong>{item.title}</strong><p>{item.detail}</p><time>{new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(item.occurredAt))}</time></div></button>)}</div> : <div className="empty-state">No hay movimientos que coincidan con los filtros.</div>}</section> : null}
   </>;
 }

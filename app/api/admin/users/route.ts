@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
+import type { User } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 import { getSmtpSettings } from '@/lib/smtp-settings';
 
@@ -44,9 +45,9 @@ function tempPassword() {
   return `Psy-${crypto.randomBytes(8).toString('base64url')}!9`;
 }
 
-async function listAllAuthUsers() {
+async function listAllAuthUsers(): Promise<User[]> {
   const admin = getSupabaseAdmin();
-  const users = [] as Awaited<ReturnType<typeof admin.auth.admin.listUsers>>['data']['users'];
+  const users: User[] = [];
   let page = 1;
   while (page <= 20) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 100 });

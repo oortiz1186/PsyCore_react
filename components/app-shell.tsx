@@ -24,6 +24,7 @@ const links = [
   ['/dashboard', 'Inicio', '⌂'],
   ['/patients', 'Pacientes', '♡'],
   ['/appointments', 'Agenda', '◷'],
+  ['/appointments/close', 'Cierre de consultas', '✓'],
   ['/reminders', 'Recordatorios', '◴'],
   ['/clinical-records', 'Expedientes', '▤'],
   ['/finance', 'Finanzas', '$'],
@@ -168,10 +169,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (href === '/settings/practice') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga';
     if (href === '/finance') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga';
     if (href === '/reminders') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga' || role === 'Asistente';
+    if (href === '/appointments/close') return role === 'Psicóloga';
     return true;
   });
 
-  const isActive = (href: string) => path === href || (href !== '/dashboard' && path.startsWith(`${href}/`));
+  const isActive = (href: string) => {
+    if (href === '/appointments') return path === href;
+    return path === href || (href !== '/dashboard' && path.startsWith(`${href}/`));
+  };
 
   return (
     <div className={`shell ${collapsed ? 'shell-collapsed' : ''}`}>

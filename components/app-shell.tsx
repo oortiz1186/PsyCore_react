@@ -24,7 +24,11 @@ const links = [
   ['/dashboard', 'Inicio', '⌂'],
   ['/patients', 'Pacientes', '♡'],
   ['/appointments', 'Agenda', '◷'],
+  ['/appointments/close', 'Cierre de consultas', '✓'],
+  ['/reminders', 'Recordatorios', '◴'],
   ['/clinical-records', 'Expedientes', '▤'],
+  ['/finance', 'Finanzas', '$'],
+  ['/admin/audit', 'Auditoría', '◉'],
   ['/admin/users', 'Usuarios', '♙'],
   ['/settings/practice', 'Consultorios y horarios', '⌁'],
   ['/settings/smtp', 'Configuración SMTP', '⚙'],
@@ -47,9 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setUserMenuOpen(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setUserMenuOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -112,7 +114,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const activityEvents: Array<keyof WindowEventMap> = ['mousedown','keydown','touchstart','scroll'];
+    const activityEvents: Array<keyof WindowEventMap> = ['mousedown', 'keydown', 'touchstart', 'scroll'];
     const registerActivity = () => {
       const now = Date.now();
       if (now - activityThrottleRef.current < 60_000) return;
@@ -164,10 +166,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const role = Array.isArray(profile?.roles) ? profile?.roles[0]?.name : profile?.roles?.name;
   const initials = (profile?.full_name || profile?.email || 'U').split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const visibleLinks = links.filter(([href]) => {
-    if (href === '/admin/users' || href === '/settings/smtp') return role === 'Administrador';
+    if (href === '/admin/users' || href === '/admin/audit' || href === '/settings/smtp') return role === 'Administrador';
     if (href === '/settings/practice') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga';
+    if (href === '/finance') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga';
+    if (href === '/reminders') return role === 'Administrador' || role === 'Recepcionista' || role === 'Psicóloga' || role === 'Asistente';
+    if (href === '/appointments/close') return role === 'Psicóloga';
     return true;
   });
+
+  const isActive = (href: string) => {
+    if (href === '/appointments') return path === href;
+    return path === href || (href !== '/dashboard' && path.startsWith(`${href}/`));
+  };
 
   return (
     <div className={`shell ${collapsed ? 'shell-collapsed' : ''}`}>
@@ -190,7 +200,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <nav className="nav">
-          {visibleLinks.map(([href, label, icon]) => <Link key={href} href={href} className={path === href ? 'nav-link active' : 'nav-link'} title={collapsed ? label : undefined}><span className="nav-icon">{icon}</span>{!collapsed ? <span>{label}</span> : null}</Link>)}
+          {visibleLinks.map(([href, label, icon]) => <Link key={href} href={href} className={isActive(href) ? 'nav-link active' : 'nav-link'} title={collapsed ? label : undefined}><span className="nav-icon">{icon}</span>{!collapsed ? <span>{label}</span> : null}</Link>)}
         </nav>
         <button type="button" className="sidebar-toggle" onClick={toggleSidebar} title={collapsed ? 'Mostrar menú' : 'Ocultar menú'} aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}>{collapsed ? '›' : '‹'}</button>
       </aside>
